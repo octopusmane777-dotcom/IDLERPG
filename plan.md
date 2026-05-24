@@ -107,7 +107,7 @@
   - [x] `UpgradeCard` (cost, affordance label, disabled state, progress bar)
   - [x] `ResourceDisplay` component (icon + value + per-second rate)
   - [x] `PluginToggle` switch component
-  - [ ] `AnimatedToast` / `showMessage` hook (deferred — Expo-specific Animated API)
+  - [x] `AnimatedToast` / `showMessage` hook (`packages/ui/AnimatedToast.tsx`, `useToast` hook)
 - [x] Set up `packages/ui/package.json` with React Native + React dependencies
 - [x] Export all components from `packages/ui/index.ts`
 - [ ] Update `packages/app` to import from `@idlerpg/ui` (deferred — inline components work fine; `@idlerpg/ui` is consumed by `packages/web`)
@@ -137,7 +137,7 @@
 ## Testing & Balance
 - [x] Create `test-balance.ts` — simulates hours of play, outputs progression curves
 - [x] Expand `GameEngine.test.ts` with imports for PrestigePlugin, EnergyPlugin, AchievementPlugin, DebugPlugin
-- [ ] Add unit tests for PrestigePlugin, EnergyPlugin, AchievementPlugin (deferred — existing test scripts cover core engine integration)
+- [x] Add unit tests for PrestigePlugin, EnergyPlugin, AchievementPlugin
 - [ ] Manual play-test: 30min session to verify balance feel
 
 ## Documentation
@@ -208,9 +208,9 @@
 - [ ] Optional audio clips for spells (deferred)
 
 ## Testing & Balance
-- [ ] Create `test-balance-spells.ts` — verify spell upgrade progression (deferred)
+- [x] Create `test-balance-spells.ts` — verify spell upgrade progression
 - [ ] Tune gold rewards for faster early-game feel (deferred — existing balance is functional)
-- [ ] Add stage milestone bonuses (every 25 stages = lump gold reward) (deferred)
+- [x] Add stage milestone bonuses (every 25 stages = lump gold reward)
 - [ ] Play-test full loop: tap → earn → upgrade spells → prestige → repeat (deferred)
 
 ## Documentation

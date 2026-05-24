@@ -138,6 +138,7 @@ export default function App() {
     const prev = prevState.current;
     if (state.level > prev.level) { triggerHaptic("kill"); const goldDiff = (state.resources.gold ?? 0) - (prev.resources.gold ?? 0);
       if (goldDiff > 0) spawnDamage(`+${goldDiff.toFixed(0)} 💰`, '#ffd700');
+      if (state.level % 25 === 0) showMessage(`Stage ${state.level} Milestone! +${(50 * state.level).toLocaleString()} bonus!`, 3000);
     }
     prevState.current = state;
   }, [state]);

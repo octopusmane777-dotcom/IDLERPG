@@ -58,6 +58,14 @@ export default function App() {
     }
   };
 
+  const prevLevel = useRef(state.level);
+  useEffect(() => {
+    if (state.level > prevLevel.current && state.level % 25 === 0) {
+      showMessage(`Stage ${state.level} Milestone! +${(50 * state.level).toLocaleString()} bonus!`, 3000);
+    }
+    prevLevel.current = state.level;
+  }, [state.level]);
+
   const meta: any = engine.getUpgradeMetadata();
   const gold = state.resources.gold ?? 0;
   const gps = state.generationRates.gold ?? 0;

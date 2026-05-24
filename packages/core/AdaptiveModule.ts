@@ -60,6 +60,10 @@ export class AdaptiveModule implements EnginePlugin {
       defeated += 1;
       newLevel = state.level + 1;
       goldGained = 5 * newLevel + goldPerKillBonus;
+      // Every 25 stages grant a lump bonus equal to 50 * stage
+      if (newLevel % 25 === 0) {
+        goldGained += 50 * newLevel;
+      }
       maxHp = Math.round(10 * Math.pow(1.2, newLevel));
       hp = maxHp;
     }
@@ -107,6 +111,7 @@ export class AdaptiveModule implements EnginePlugin {
         defeated += 1;
         maxHp = Math.round(10 * Math.pow(1.2, newLevel));
         goldGained = 5 * newLevel + gear.goldPerKill;
+        if (newLevel % 25 === 0) goldGained += 50 * newLevel;
         return {
           level: newLevel,
           resources: { ...state.resources, gold: (state.resources.gold || 0) + goldGained },
