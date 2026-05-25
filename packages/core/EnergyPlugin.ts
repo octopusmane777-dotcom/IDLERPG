@@ -8,14 +8,13 @@ export interface EnergyPluginState {
 }
 
 const SPELLS = [
-  { id: 'OVERCLOCK',      name: 'Overclock',      baseCost: 5,  baseMultiplier: 2,  baseCooldown: 5,  color: '#00e5ff' },
-  { id: 'RAM_SURGE',      name: 'RAM Surge',       baseCost: 10, baseMultiplier: 5,  baseCooldown: 10, color: '#00e676' },
-  { id: 'GPU_RENDER',     name: 'GPU Render',      baseCost: 15, baseMultiplier: 12, baseCooldown: 15, color: '#ffd700' },
-  { id: 'KERNEL_PANIC',   name: 'Kernel Panic',    baseCost: 20, baseMultiplier: 22, baseCooldown: 25, color: '#e63946' },
-  { id: 'NEURAL_CASCADE', name: 'Neural Cascade',  baseCost: 30, baseMultiplier: 45, baseCooldown: 45, color: '#ff6b35' },
+  { id: 'SLASH',     name: 'Overclock',     baseCost: 5,  baseMultiplier: 2,  baseCooldown: 5,  color: '#00e5ff' },
+  { id: 'FIREBALL',  name: 'RAM Surge',      baseCost: 10, baseMultiplier: 5,  baseCooldown: 10, color: '#00e676' },
+  { id: 'LIGHTNING', name: 'GPU Render',     baseCost: 15, baseMultiplier: 12, baseCooldown: 15, color: '#ffd700' },
+  { id: 'METEOR',    name: 'Kernel Panic',   baseCost: 20, baseMultiplier: 22, baseCooldown: 25, color: '#e63946' },
+  { id: 'ULTIMATE',  name: 'Neural Cascade', baseCost: 30, baseMultiplier: 45, baseCooldown: 45, color: '#ff6b35' },
 ];
 
-const ALL_SPELL_IDS = SPELLS.map(s => s.id);
 
 function spellUpgradeCost(spell: typeof SPELLS[0], level: number): number {
   return Math.round(spell.baseCost * 10 * Math.pow(1.5, level));
@@ -35,13 +34,11 @@ export class EnergyPlugin implements EnginePlugin {
   onInit(engine: any) {
     const existing = engine.getPluginState(this.id);
     if (!existing || Object.keys(existing).length === 0) {
-      const spellLevels: Record<string, number> = {};
-      for (const s of SPELLS) spellLevels[s.id] = 0;
       engine.setPluginState(this.id, {
         energy: 50,
         maxEnergy: 50,
         cooldowns: {},
-        spellLevels,
+        spellLevels: { SLASH: 0, FIREBALL: 0, LIGHTNING: 0, METEOR: 0, ULTIMATE: 0 },
       } as EnergyPluginState);
     } else {
       const s = existing as EnergyPluginState;

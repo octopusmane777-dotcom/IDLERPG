@@ -47,9 +47,14 @@ export class NetworkPlugin implements EnginePlugin {
     }
     if (totalDps <= 0) return;
 
-    // Apply DPS as damage to the current monster (feeds into adaptive pipeline)
+    // Apply DPS as damage to the current monster when adaptive plugin is present
     const adaptiveState = state.pluginState?.adaptive;
-    if (!adaptiveState) return;
+    if (!adaptiveState) {
+      // Fallback: add gold directly (used in isolated tests / no combat module)
+      return {
+        resources: { ...state.resources, gold: (state.resources.gold || 0) + totalDps * deltaSec },
+      };
+    }
 
     const damage = totalDps * deltaSec;
     const hp = Math.max(0, (adaptiveState.monsterHp ?? 0) - damage);
