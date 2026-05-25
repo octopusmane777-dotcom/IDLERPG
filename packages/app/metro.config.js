@@ -16,4 +16,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
+// Ensure React Native field takes priority so workspace hoisting doesn't cause
+// Metro to pick up browser/CJS builds instead of the native entry points.
+config.resolver.resolverMainFields = ['react-native', 'browser', 'main'];
+
 module.exports = config;

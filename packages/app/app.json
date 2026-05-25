@@ -1,5 +1,6 @@
 {
   "expo": {
+    "entryPoint": "./node_modules/expo-router/entry",
     "name": "AI Overlord",
     "slug": "AI Overlord",
     "version": "1.0.0",
