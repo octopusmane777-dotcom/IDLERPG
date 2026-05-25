@@ -110,7 +110,7 @@
   - [x] `AnimatedToast` / `showMessage` hook (`packages/ui/AnimatedToast.tsx`, `useToast` hook)
 - [x] Set up `packages/ui/package.json` with React Native + React dependencies
 - [x] Export all components from `packages/ui/index.ts`
-- [ ] Update `packages/app` to import from `@idlerpg/ui` (deferred — inline components work fine; `@idlerpg/ui` is consumed by `packages/web`)
+- [x] Update `packages/app` to import from `@idlerpg/ui` (`ProgressBar`, `useToast` replacing inline health bar and toast logic)
 
 ## `packages/web` – Web Entry Point
 - [x] Create `packages/web` with Vite + React setup
@@ -209,7 +209,7 @@
 
 ## Testing & Balance
 - [x] Create `test-balance-spells.ts` — verify spell upgrade progression
-- [ ] Tune gold rewards for faster early-game feel (deferred — existing balance is functional)
+- [x] Tune gold rewards for faster early-game feel (formula: `10 + 8×level` vs old `5×level`)
 - [x] Add stage milestone bonuses (every 25 stages = lump gold reward)
 - [ ] Play-test full loop: tap → earn → upgrade spells → prestige → repeat (deferred)
 

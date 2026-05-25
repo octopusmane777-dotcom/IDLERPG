@@ -196,7 +196,7 @@ export class EnergyPlugin implements EnginePlugin {
       const newLevel = state.level + 1;
       defeated += 1;
       maxHp = Math.round(10 * Math.pow(1.2, newLevel));
-      goldGained = 5 * newLevel;
+      goldGained = 10 + 8 * newLevel;
       if (newLevel % 25 === 0) goldGained += 50 * newLevel;
       const nextResources = { ...state.resources, gold: (state.resources.gold || 0) + goldGained };
       return {

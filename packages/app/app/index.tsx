@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, Text, View, Pressable, Animated, ScrollView, Dimensions, Modal, Alert } from 'react-native';
+import { ProgressBar, useToast } from '@idlerpg/ui';
 import { GameEngine } from '@idlerpg/core/GameEngine';
 import { AdaptiveModule } from '@idlerpg/core/AdaptiveModule';
 import { ProgressionPlugin } from '@idlerpg/core/ProgressionPlugin';
@@ -57,25 +58,14 @@ let dmgIdCounter = 0;
 
 export default function App() {
   const [state, setState] = useState(engine.getState());
-  const [message, setMessage] = useState<string | null>(null);
+  const { showMessage, ToastComponent } = useToast();
   const [damageNums, setDamageNums] = useState<DamageNum[]>([]);
   const [tab, setTab] = useState<'upgrades' | 'energy' | 'prestige' | 'achievements' | 'gear'>('upgrades');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(true);
-  const msgOpacity = useRef(new Animated.Value(0)).current;
   const tapScale = useRef(new Animated.Value(1)).current;
   const drawerHeight = useRef(new Animated.Value(1)).current;
   const monsterRef = useRef<View>(null);
-
-  const showMessage = (msg: string, ms = 2000) => {
-    setMessage(msg);
-    Animated.sequence([
-      Animated.timing(msgOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.delay(ms - 300),
-      Animated.timing(msgOpacity, { toValue: 0, duration: 150, useNativeDriver: true }),
-    ]).start();
-    setTimeout(() => setMessage(null), ms);
-  };
 
   const spawnDamage = (text: string, color: string) => {
     const anim = new Animated.Value(1);
@@ -192,7 +182,7 @@ export default function App() {
         </View></View>
       </Modal>
 
-      {message && <Animated.View style={[styles.toast,{opacity:msgOpacity}]}><Text style={styles.toastText}>{message}</Text></Animated.View>}
+      <ToastComponent />
 
       {meta.plugins['onboarding']?.onboarding && !meta.plugins['onboarding']?.onboarding?.completed && (
         <View style={styles.tutorialCard}>
@@ -217,7 +207,7 @@ export default function App() {
       <Pressable style={styles.monsterArea} onPress={handleTap}>
         <Animated.View style={{transform:[{scale:tapScale}]}}><Text style={styles.monsterEmoji}>{stageEmoji(state.level)}</Text></Animated.View>
         <Text style={styles.monsterName}>{stageName(state.level)} Lv.{state.level}</Text>
-        <View style={styles.healthBarOuter}><View style={[styles.healthBarFill,{width:`${(hpPct*100).toFixed(0)}%`as any}]}/></View>
+        <ProgressBar current={monsterHp} max={monsterMaxHp} color="#e94560" bgColor="#1a1a2e" />
         <Text style={styles.healthText}>{monsterHp.toFixed(0)} / {monsterMaxHp}</Text>
         <Text style={styles.dpsText}>Hack: {tapDamage} | Daemon: 1 | Compromised: {monstersDefeated}</Text>
       </Pressable>
@@ -261,8 +251,8 @@ export default function App() {
           )}
           {tab==='energy'&&(
             <>
-              <View style={[styles.energyBar,{marginHorizontal:16}]}>
-                <View style={[styles.energyFill,{width:`${(Math.min(1,(meta.plugins['energy']?.energy?.current??0)/(meta.plugins['energy']?.energy?.max||1))*100).toFixed(0)}%`as any}]}/>
+              <View style={{marginHorizontal:16,marginTop:12}}>
+                <ProgressBar current={meta.plugins['energy']?.energy?.current??0} max={meta.plugins['energy']?.energy?.max??50} color="#00b4d8" bgColor="#1a1a2e" />
                 <Text style={styles.energyText}>{(meta.plugins['energy']?.energy?.current??0).toFixed(0)}/{meta.plugins['energy']?.energy?.max??50}</Text>
               </View>
                {(meta.plugins['energy']?.energy?.spells??[]).map((s:any)=>(
@@ -386,8 +376,6 @@ const styles=StyleSheet.create({
   stageValue:{color:'#fff',fontSize:26,fontWeight:'900'},
   settingsBtn:{paddingHorizontal:8,justifyContent:'center'},
   settingsIcon:{fontSize:20},
-  toast:{position:'absolute',top:100,left:0,right:0,alignItems:'center',zIndex:10},
-  toastText:{color:'#ffd700',fontWeight:'700',fontSize:16,backgroundColor:'rgba(0,0,0,0.8)',paddingHorizontal:20,paddingVertical:8,borderRadius:20,overflow:'hidden'},
   tutorialCard:{margin:16,padding:16,backgroundColor:'#1a1a2e',borderRadius:12,borderWidth:1,borderColor:'#ffd700'},
   tutorialStep:{color:'#888',fontSize:11,marginBottom:4},
   tutorialTitle:{color:'#ffd700',fontSize:16,fontWeight:'700'},
@@ -400,8 +388,6 @@ const styles=StyleSheet.create({
   monsterArea:{alignItems:'center',paddingVertical:20,paddingHorizontal:30},
   monsterEmoji:{fontSize:40,marginBottom:8,color:'#e94560',fontWeight:'900'},
   monsterName:{color:'#e94560',fontSize:14,fontWeight:'700',marginBottom:10},
-  healthBarOuter:{width:'100%',height:18,backgroundColor:'#1a1a2e',borderRadius:9,overflow:'hidden',borderWidth:1,borderColor:'#333'},
-  healthBarFill:{height:'100%',backgroundColor:'#e94560',borderRadius:9},
   healthText:{color:'#aaa',fontSize:11,marginTop:4},
   dpsText:{color:'#888',fontSize:11,marginTop:4},
   damageOverlay:{position:'absolute',top:'30%',left:'20%',right:'20%',bottom:'40%',alignItems:'center',justifyContent:'center',zIndex:20},
@@ -428,9 +414,7 @@ const styles=StyleSheet.create({
   upgradeBtn:{backgroundColor:'#7b2ff7',paddingHorizontal:20,paddingVertical:12,borderRadius:8},
   upgradeBtnDisabled:{backgroundColor:'#2a2a3a'},
   upgradeBtnText:{color:'#fff',fontWeight:'700',fontSize:14},
-  energyBar:{height:28,backgroundColor:'#1a1a2e',borderRadius:14,overflow:'hidden',marginTop:12,justifyContent:'center',alignItems:'center'},
-  energyFill:{position:'absolute',left:0,top:0,height:'100%',backgroundColor:'#00b4d8',borderRadius:14},
-  energyText:{color:'#fff',fontWeight:'700',fontSize:13},
+  energyText:{color:'#fff',fontWeight:'700',fontSize:13,textAlign:'center',marginTop:2},
   spellRow:{flexDirection:'row',alignItems:'center',backgroundColor:'#12121e',padding:14,borderRadius:10,marginHorizontal:16,marginTop:8},
   spellRowDisabled:{backgroundColor:'#0e0e15',opacity:0.5},
   spellName:{fontSize:15,fontWeight:'700'},
