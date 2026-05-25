@@ -201,7 +201,6 @@ export class EquipmentPlugin implements EnginePlugin {
         equipped[gear.slot] = gearId;
         return {
           pluginState: {
-            ...state.pluginState,
             [this.id]: { ...eState, equipped },
           },
         };
@@ -213,7 +212,6 @@ export class EquipmentPlugin implements EnginePlugin {
         if (equipped[slot]) equipped[slot] = null;
         return {
           pluginState: {
-            ...state.pluginState,
             [this.id]: { ...eState, equipped },
           },
         };
@@ -231,30 +229,7 @@ export class EquipmentPlugin implements EnginePlugin {
         return {
           resources: { ...state.resources, gold: (state.resources.gold || 0) + scrapGold },
           pluginState: {
-            ...state.pluginState,
             [this.id]: { ...eState, equipped, inventory },
-          },
-        };
-      }
-
-      case 'GENERATE_DROP': {
-        const stage = state.level;
-        if (stage < 3) return;
-
-        const dropChance = Math.max(0.03, 0.30 - (stage / 500) * 0.27);
-        if (Math.random() > dropChance) return;
-
-        const slots: GearPiece['slot'][] = ['weapon', 'armor', 'ring'];
-        const slot = slots[Math.floor(Math.random() * slots.length)];
-        const gear = generateGearPiece(slot, stage);
-        const inventory = [...(eState.inventory || []), gear];
-
-        const trimmed = inventory.slice(-30);
-
-        return {
-          pluginState: {
-            ...state.pluginState,
-            [this.id]: { ...eState, inventory: trimmed },
           },
         };
       }
@@ -262,5 +237,27 @@ export class EquipmentPlugin implements EnginePlugin {
       default:
         return;
     }
+  }
+
+  onKill(state: GameState, _killCount: number) {
+    const eState: EquipmentPluginState = state.pluginState[this.id];
+    if (!eState) return;
+
+    const stage = state.level;
+    if (stage < 3) return;
+
+    const dropChance = Math.max(0.03, 0.30 - (stage / 500) * 0.27);
+    if (Math.random() > dropChance) return;
+
+    const slots: GearPiece['slot'][] = ['weapon', 'armor', 'ring'];
+    const slot = slots[Math.floor(Math.random() * slots.length)];
+    const gear = generateGearPiece(slot, stage);
+    const inventory = [...(eState.inventory || []), gear].slice(-30);
+
+    return {
+      pluginState: {
+        [this.id]: { ...eState, inventory },
+      },
+    };
   }
 }

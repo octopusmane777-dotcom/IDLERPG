@@ -86,7 +86,6 @@ export class EnergyPlugin implements EnginePlugin {
 
     return {
       pluginState: {
-        ...state.pluginState,
         [this.id]: { energy, maxEnergy: newMax, cooldowns, spellLevels: eState.spellLevels || {} },
       },
     };
@@ -151,7 +150,6 @@ export class EnergyPlugin implements EnginePlugin {
       return {
         resources: { ...state.resources, gold: gold - cost },
         pluginState: {
-          ...state.pluginState,
           [this.id]: { ...eState, spellLevels },
         },
       };
@@ -198,23 +196,29 @@ export class EnergyPlugin implements EnginePlugin {
       maxHp = Math.round(10 * Math.pow(1.2, newLevel));
       goldGained = 10 + 8 * newLevel;
       if (newLevel % 25 === 0) goldGained += 50 * newLevel;
-      const nextResources = { ...state.resources, gold: (state.resources.gold || 0) + goldGained };
       return {
         level: newLevel,
-        resources: nextResources,
+        resources: { ...state.resources, gold: (state.resources.gold || 0) + goldGained },
         pluginState: {
-          ...state.pluginState,
           [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: 50, cooldowns: newCooldowns, spellLevels },
-          adaptive: { ...adaptiveState, monsterHp: maxHp, monsterMaxHp: maxHp, monstersDefeated: defeated, tapDamage },
+          // A3: only update the specific fields we changed, not the full adaptive state
+          adaptive: {
+            ...adaptiveState,
+            monsterHp: maxHp,
+            monsterMaxHp: maxHp,
+            monstersDefeated: defeated,
+          },
         },
       };
     }
 
     return {
       pluginState: {
-        ...state.pluginState,
         [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: 50, cooldowns: newCooldowns, spellLevels },
-        adaptive: { ...adaptiveState, monsterHp: hp, tapDamage },
+        adaptive: {
+          ...adaptiveState,
+          monsterHp: hp,
+        },
       },
     };
   }

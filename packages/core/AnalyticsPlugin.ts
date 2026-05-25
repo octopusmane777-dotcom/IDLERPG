@@ -31,7 +31,6 @@ export class AnalyticsPlugin implements EnginePlugin {
     const event = { type, timestamp: Date.now(), data };
     return {
       pluginState: {
-        ...state.pluginState,
         [this.id]: {
           ...aState,
           events: [...(aState.events || []), event].slice(-500), // keep last 500

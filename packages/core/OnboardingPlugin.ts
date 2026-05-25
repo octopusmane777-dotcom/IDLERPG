@@ -61,7 +61,6 @@ export class OnboardingPlugin implements EnginePlugin {
       const next = this.advance(oState);
       return {
         pluginState: {
-          ...state.pluginState,
           [this.id]: { ...oState, ...next },
         },
       };
@@ -70,7 +69,6 @@ export class OnboardingPlugin implements EnginePlugin {
     if (action.type === 'SKIP_TUTORIAL') {
       return {
         pluginState: {
-          ...state.pluginState,
           [this.id]: { step: STEPS.length - 1, completed: true },
         },
       };

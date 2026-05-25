@@ -11,6 +11,11 @@ import { AchievementPlugin } from '@idlerpg/core/AchievementPlugin';
 import { DebugPlugin } from '@idlerpg/core/DebugPlugin';
 import { OnboardingPlugin } from '@idlerpg/core/OnboardingPlugin';
 import { AnalyticsPlugin } from '@idlerpg/core/AnalyticsPlugin';
+import { NetworkPlugin } from '@idlerpg/core/NetworkPlugin';
+import { ComboPlugin } from '@idlerpg/core/ComboPlugin';
+import { MissionPlugin } from '@idlerpg/core/MissionPlugin';
+import { BossPlugin } from '@idlerpg/core/BossPlugin';
+import { SkillTreePlugin } from '@idlerpg/core/SkillTreePlugin';
 import { LocalDataRepository } from '@idlerpg/core/LocalDataRepository';
 import { FirebaseDataRepository } from '@idlerpg/core/FirebaseDataRepository';
 import { CompositeRepository } from '@idlerpg/core/CompositeRepository';
@@ -40,7 +45,22 @@ const firebaseRepo = new FirebaseDataRepository({ firestore: null });
 const repository = new CompositeRepository([localRepo, firebaseRepo]);
 
 const engine = new GameEngine({
-  plugins: [new ProgressionPlugin(), new AdaptiveModule(), new PrestigePlugin(), new EnergyPlugin(), new EquipmentPlugin(), new AchievementPlugin(), new DebugPlugin(), new OnboardingPlugin(), new AnalyticsPlugin()],
+  plugins: [
+    new ProgressionPlugin(),
+    new AdaptiveModule(),
+    new PrestigePlugin(),
+    new EnergyPlugin(),
+    new EquipmentPlugin(),
+    new AchievementPlugin(),
+    new DebugPlugin(),
+    new OnboardingPlugin(),
+    new AnalyticsPlugin(),
+    new NetworkPlugin(),
+    new ComboPlugin(),
+    new MissionPlugin(),
+    new BossPlugin(),
+    new SkillTreePlugin(),
+  ],
   repo: repository,
   userId: 'player',
 });
@@ -60,7 +80,7 @@ export default function App() {
   const [state, setState] = useState(engine.getState());
   const { showMessage, ToastComponent } = useToast();
   const [damageNums, setDamageNums] = useState<DamageNum[]>([]);
-  const [tab, setTab] = useState<'upgrades' | 'energy' | 'prestige' | 'achievements' | 'gear'>('upgrades');
+  const [tab, setTab] = useState<'upgrades' | 'energy' | 'prestige' | 'achievements' | 'gear' | 'missions' | 'skilltree'>('upgrades');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(true);
   const tapScale = useRef(new Animated.Value(1)).current;
@@ -117,7 +137,16 @@ export default function App() {
 
   const triggerHaptic = async (type:string) => { try { const h = await import("expo-haptics").then(m=>m).catch(()=>null); if(!h)return; if(type==="tap")h.impactAsync?.(h.ImpactFeedbackStyle?.Light);else if(type==="spell")h.impactAsync?.(h.ImpactFeedbackStyle?.Heavy);else if(type==="kill")h.notificationAsync?.(h.NotificationFeedbackType?.Success); } catch {} }; const handleTap = () => { triggerHaptic("tap");
     spawnDamage(`-${tapDamage + (meta?.plugins?.equipment?.equipment?.bonuses?.tapDamage||0)}`, '#e94560');
-    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'adaptive', action: { type: 'TAP_DAMAGE' } } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
+    // Route tap damage to boss if active, otherwise to adaptive
+    const bossState = engine.getState().pluginState.boss;
+    if (bossState?.bossActive) {
+      const tapDmg = (engine.getState().pluginState.adaptive?.tapDamage ?? 1);
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: tapDmg } } });
+    } else {
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'adaptive', action: { type: 'TAP_DAMAGE' } } });
+    }
     Animated.sequence([
       Animated.timing(tapScale, { toValue: 0.9, duration: 50, useNativeDriver: true }),
       Animated.timing(tapScale, { toValue: 1, duration: 100, useNativeDriver: true }),
@@ -141,6 +170,11 @@ export default function App() {
   const tapDamage = a?.tapDamage ?? 1;
   const hpPct = monsterMaxHp > 0 ? monsterHp / monsterMaxHp : 1;
   const canUpgradeTap = gold >= (meta.plugins['adaptive']?.upgrade?.cost ?? 0);
+  const combo = meta.plugins['combo']?.combo;
+  const boss = meta.plugins['boss']?.boss;
+  const network = meta.plugins['network']?.network;
+  const missions = meta.plugins['missions']?.missions;
+  const skilltree = meta.plugins['skilltree']?.skilltree;
 
   const drawerMaxH = drawerHeight.interpolate({
     inputRange: [0, 1],
@@ -204,11 +238,27 @@ export default function App() {
         ))}
       </View>
 
+      {combo?.count > 2 && (
+        <View style={styles.comboOverlay} pointerEvents="none">
+          <Text style={[styles.comboText, { color: combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700' }]}>
+            x{combo.multiplier.toFixed(1)} COMBO!
+          </Text>
+        </View>
+      )}
+
+      {boss?.bossActive && (
+        <View style={styles.bossBar}>
+          <Text style={styles.bossLabel}>BOSS ALERT  {boss.bossTimer.toFixed(0)}s</Text>
+          <ProgressBar current={boss.bossHp} max={boss.bossMaxHp} color="#ff4400" bgColor="#1a0000" />
+          <Text style={styles.bossHpText}>{boss.bossHp.toFixed(0)} / {boss.bossMaxHp}</Text>
+        </View>
+      )}
+
       <Pressable style={styles.monsterArea} onPress={handleTap}>
-        <Animated.View style={{transform:[{scale:tapScale}]}}><Text style={styles.monsterEmoji}>{stageEmoji(state.level)}</Text></Animated.View>
-        <Text style={styles.monsterName}>{stageName(state.level)} Lv.{state.level}</Text>
-        <ProgressBar current={monsterHp} max={monsterMaxHp} color="#e94560" bgColor="#1a1a2e" />
-        <Text style={styles.healthText}>{monsterHp.toFixed(0)} / {monsterMaxHp}</Text>
+        <Animated.View style={{transform:[{scale:tapScale}]}}><Text style={styles.monsterEmoji}>{boss?.bossActive ? '⚠️' : stageEmoji(state.level)}</Text></Animated.View>
+        <Text style={[styles.monsterName, boss?.bossActive && {color:'#ff4400'}]}>{boss?.bossActive ? 'BOSS' : stageName(state.level)} Lv.{state.level}</Text>
+        {!boss?.bossActive && <ProgressBar current={monsterHp} max={monsterMaxHp} color="#e94560" bgColor="#1a1a2e" />}
+        {!boss?.bossActive && <Text style={styles.healthText}>{monsterHp.toFixed(0)} / {monsterMaxHp}</Text>}
         <Text style={styles.dpsText}>Hack: {tapDamage} | Daemon: 1 | Compromised: {monstersDefeated}</Text>
       </Pressable>
 
@@ -230,23 +280,46 @@ export default function App() {
         </Pressable>
 
         <View style={styles.tabBar}>
-          {(['upgrades','energy','prestige','achievements','gear']as const).map(t=>(
+          {(['upgrades','energy','missions','prestige','gear','achievements','skilltree']as const).map(t=>(
             <Pressable key={t} style={[styles.tab,tab===t&&styles.tabActive]} onPress={()=>setTab(t)}>
-              <Text style={[styles.tabText,tab===t&&styles.tabTextActive]}>{t==='upgrades'?'System Upgrades':t==='energy'?'CPU Power':t==='prestige'?'Evolution':t==='achievements'?'Milestones':'⚙️ Hardware'}</Text>
+              <Text style={[styles.tabText,tab===t&&styles.tabTextActive]}>{
+                t==='upgrades'?'Upgrades':
+                t==='energy'?'CPU Power':
+                t==='missions'?'Missions':
+                t==='prestige'?'Prestige':
+                t==='gear'?'Hardware':
+                t==='achievements'?'Milestones':
+                'Skill Tree'
+              }</Text>
             </Pressable>
           ))}
         </View>
 
         <ScrollView style={{flex:1}}>
           {tab==='upgrades'&&(
-            <View style={styles.upgradeRow}>
-              <View style={{flex:1}}>
-                <Text style={styles.upgradeName}>Tap Power Lv.{Math.max(0,(tapDamage-1))}</Text>
-                <Text style={styles.upgradeEffect}>+1 Tap Dmg</Text>
+            <View>
+              <View style={styles.upgradeRow}>
+                <View style={{flex:1}}>
+                  <Text style={styles.upgradeName}>Tap Power Lv.{Math.max(0,(tapDamage-1))}</Text>
+                  <Text style={styles.upgradeEffect}>+1 Tap Dmg</Text>
+                </View>
+                <Pressable style={[styles.upgradeBtn,!canUpgradeTap&&styles.upgradeBtnDisabled]} onPress={()=>{if(canUpgradeTap){engine.dispatch({type:'PLUGIN_ACTION',payload:{pluginId:'adaptive',action:{type:'UPGRADE_TAP',payload:{cost:meta.plugins['adaptive']?.upgrade?.cost}}}});showMessage('Tap Dmg +1');}}} disabled={!canUpgradeTap}>
+                  <Text style={styles.upgradeBtnText}>{meta.plugins['adaptive']?.upgrade?.cost??'?'}</Text>
+                </Pressable>
               </View>
-              <Pressable style={[styles.upgradeBtn,!canUpgradeTap&&styles.upgradeBtnDisabled]} onPress={()=>{if(canUpgradeTap){engine.dispatch({type:'PLUGIN_ACTION',payload:{pluginId:'adaptive',action:{type:'UPGRADE_TAP',payload:{cost:meta.plugins['adaptive']?.upgrade?.cost}}}});showMessage('Tap Dmg +1');}}} disabled={!canUpgradeTap}>
-                <Text style={styles.upgradeBtnText}>{meta.plugins['adaptive']?.upgrade?.cost??'?'}</Text>
-              </Pressable>
+              <Text style={styles.sectionHeader}>Network Nodes</Text>
+              <Text style={styles.sectionSubtitle}>{(network?.totalOutput??0).toFixed(1)} CPU/s passive</Text>
+              {(network?.nodes??[]).map((n:any)=>(
+                <View key={n.id} style={styles.upgradeRow}>
+                  <View style={{flex:1}}>
+                    <Text style={styles.upgradeName}>{n.name} ({n.count})</Text>
+                    <Text style={styles.upgradeEffect}>{n.description} | +{(n.rate).toFixed(1)}/s total</Text>
+                  </View>
+                  <Pressable style={[styles.upgradeBtn,!n.canBuy&&styles.upgradeBtnDisabled]} onPress={()=>{if(n.canBuy){engine.dispatch({type:'PLUGIN_ACTION',payload:{pluginId:'network',action:{type:'BUY_NODE',nodeId:n.id}}});showMessage(n.name+' +1');}}} disabled={!n.canBuy} accessibilityRole="button" accessibilityLabel={`Buy ${n.name}. Cost: ${n.nextCost}`} accessibilityState={{disabled:!n.canBuy}}>
+                    <Text style={styles.upgradeBtnText}>{n.nextCost>=1000000?(n.nextCost/1000000).toFixed(1)+'M':n.nextCost>=1000?(n.nextCost/1000).toFixed(0)+'K':n.nextCost}</Text>
+                  </Pressable>
+                </View>
+              ))}
             </View>
           )}
           {tab==='energy'&&(
@@ -330,6 +403,48 @@ export default function App() {
             <View style={{paddingHorizontal:16}}>
               <Text style={styles.achCount}>{meta.plugins['achievements']?.achievements?.unlockedCount??0}/{meta.plugins['achievements']?.achievements?.total??6} Milestones</Text>
               {(meta.plugins['achievements']?.achievements?.list??[]).map((a:any)=>(<View key={a.id} style={[styles.achRow,a.unlocked&&styles.achUnlocked]}><Text style={styles.achName}>{a.unlocked?'✅':'⬜'} {a.name}</Text><Text style={styles.achDesc}>{a.description}{a.unlocked?` (+${a.reward})`:''}</Text></View>))}
+            </View>
+          )}
+          {tab==='missions'&&(
+            <View style={{paddingHorizontal:16}}>
+              <Text style={styles.achCount}>Daily Missions — resets in {missions?.hoursUntilReset??0}h</Text>
+              {(missions?.list??[]).map((m:any)=>(
+                <View key={m.id} style={[styles.achRow, m.completed&&!m.claimed&&styles.achUnlocked, m.claimed&&{opacity:0.4}]}>
+                  <View style={{flex:1}}>
+                    <Text style={styles.achName}>{m.claimed?'✅':m.completed?'🎯':''} {m.description}</Text>
+                    <Text style={styles.achDesc}>{m.progress}/{m.target} | Reward: {m.reward} CPU</Text>
+                  </View>
+                  {m.completed&&!m.claimed&&(
+                    <Pressable style={[styles.upgradeBtn,{paddingHorizontal:12,paddingVertical:8}]} onPress={()=>{engine.dispatch({type:'PLUGIN_ACTION',payload:{pluginId:'missions',action:{type:'CLAIM_MISSION',missionId:m.id}}});showMessage('+'+m.reward+' CPU!');}} accessibilityRole="button" accessibilityLabel={`Claim mission reward: ${m.reward} CPU`}>
+                      <Text style={styles.upgradeBtnText}>Claim</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+          {tab==='skilltree'&&(
+            <View style={{paddingHorizontal:16}}>
+              <Text style={styles.achCount}>{skilltree?.points??0} skill point{(skilltree?.points??0)!==1?'s':''} available</Text>
+              <Text style={{color:'#888',fontSize:11,marginBottom:8}}>Earn points by prestiging. Each branch unlocks in order.</Text>
+              {(['HACK','INFRA','GHOST']as const).map(branch=>(
+                <View key={branch} style={{marginTop:12}}>
+                  <Text style={styles.sectionHeader}>{branch==='HACK'?'Hack Branch':branch==='INFRA'?'Infra Branch':'Ghost Branch'}</Text>
+                  {(skilltree?.nodes??[]).filter((n:any)=>n.branch===branch).map((n:any)=>(
+                    <View key={n.id} style={[styles.achRow,n.unlocked&&styles.achUnlocked,n.locked&&{opacity:0.35}]}>
+                      <View style={{flex:1}}>
+                        <Text style={styles.achName}>{n.unlocked?'✅':n.available?'○':'🔒'} {n.name}</Text>
+                        <Text style={styles.achDesc}>{n.description}</Text>
+                      </View>
+                      {n.available&&(
+                        <Pressable style={[styles.upgradeBtn,{paddingHorizontal:12,paddingVertical:8}]} onPress={()=>{engine.dispatch({type:'PLUGIN_ACTION',payload:{pluginId:'skilltree',action:{type:'UNLOCK_SKILL',nodeId:n.id}}});showMessage(n.name+' unlocked!');}} accessibilityRole="button" accessibilityLabel={`Unlock ${n.name}`}>
+                          <Text style={styles.upgradeBtnText}>1pt</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              ))}
             </View>
           )}
         </ScrollView>
@@ -445,6 +560,13 @@ const styles=StyleSheet.create({
   gearRow:{flexDirection:'row',alignItems:'center',backgroundColor:'#12121e',padding:8,borderRadius:8,marginTop:4},
   gearBtn:{backgroundColor:'#7b2ff7',paddingHorizontal:10,paddingVertical:6,borderRadius:6},
   gearBtnText:{color:'#fff',fontSize:10,fontWeight:'700'},
+  comboOverlay:{position:'absolute',top:120,left:0,right:0,alignItems:'center',zIndex:25},
+  comboText:{fontSize:22,fontWeight:'900',letterSpacing:2},
+  bossBar:{marginHorizontal:16,marginTop:4,backgroundColor:'#1a0000',padding:10,borderRadius:8,borderWidth:1,borderColor:'#ff4400'},
+  bossLabel:{color:'#ff4400',fontSize:12,fontWeight:'700',marginBottom:4,textAlign:'center'},
+  bossHpText:{color:'#ff8888',fontSize:10,textAlign:'center',marginTop:2},
+  sectionHeader:{color:'#ffd700',fontSize:12,fontWeight:'700',marginTop:14,marginBottom:2,marginHorizontal:16},
+  sectionSubtitle:{color:'#888',fontSize:10,marginBottom:4,marginHorizontal:16},
   devToggle:{position:'absolute',bottom:55,right:16,padding:8},
   devToggleText:{color:'#444',fontSize:10},
   devPanel:{position:'absolute',bottom:100,right:8,flexDirection:'row',gap:4,backgroundColor:'#1a1a2e',padding:8,borderRadius:8},

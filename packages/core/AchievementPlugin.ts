@@ -62,7 +62,6 @@ export class AchievementPlugin implements EnginePlugin {
       return {
         resources: nextResources,
         pluginState: {
-          ...state.pluginState,
           [this.id]: {
             unlocked: Array.from(unlocked),
             unlockedCount: unlocked.size,

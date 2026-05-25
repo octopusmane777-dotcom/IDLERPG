@@ -31,22 +31,29 @@ packages/web/      — Vite + React web entry point (uses @idlerpg/core + @idler
 | `adaptive` | AdaptiveModule | `{monsterHp,monsterMaxHp,monstersDefeated,tapDamage}` | `TAP_DAMAGE`, `UPGRADE_TAP` |
 | `prestige` | PrestigePlugin | `{cores,lifetimeGold,bonusMultiplier}` | `PRESTIGE` (resets level→1, gold→0, generation→1) |
 | `energy` | EnergyPlugin | `{energy,maxEnergy,cooldowns:{},spellLevels:{}}` | 5 spells: `SLASH/FIREBALL/LIGHTNING/METEOR/ULTIMATE` — upgradable (+2×/lvl, -1s CD/lvl), costs energy, has CD |
-| `equipment` | EquipmentPlugin | `{equipped:{},inventory:[]}` | `EQUIP`, `UNEQUIP`, `SCRAP`, `GENERATE_DROP` — 3 slots, 4 rarities, drops on kill (12-30%) |
+| `equipment` | EquipmentPlugin | `{equipped:{},inventory:[]}` | `EQUIP`, `UNEQUIP`, `SCRAP` — 3 slots, 4 rarities, drops via `onKill` hook |
 | `achievements` | AchievementPlugin | `{unlocked:[],unlockedCount}` | Checks on tick, grants gold on unlock |
 | `debug` | DebugPlugin | `{visible}` | `ADD_GOLD`, `SET_LEVEL`, `TOGGLE_DEBUG` |
 | `onboarding` | OnboardingPlugin | `{step,completed}` | `NEXT_STEP`, `SKIP_TUTORIAL` (5-step tutorial) |
 | `analytics` | AnalyticsPlugin | `{enabled,events}` | `TOGGLE_ANALYTICS` |
+| `network` | NetworkPlugin | `{nodes:{}}` | `BUY_NODE` — 5 passive income generators, cost doubles per purchase |
+| `combo` | ComboPlugin | `{count,lastTapTime,multiplier}` | Intercepts `TAP_DAMAGE` — builds x1.0–x3.0 multiplier on rapid taps, resets after 1.5s |
+| `missions` | MissionPlugin | `{dayKey,active:[],sessionKills,...}` | `CLAIM_MISSION` — 3 daily missions rotating each 24h, tracks kills/taps/spells/gold spent/scraps |
+| `boss` | BossPlugin | `{bossActive,bossHp,bossTimer,bossesDefeated}` | `BOSS_DAMAGE` — boss spawns every 10 stages, 30s timer, 3× gold reward on kill |
+| `skilltree` | SkillTreePlugin | `{points,unlocked:[]}` | `UNLOCK_SKILL` — 3 branches × 5 nodes, points earned from prestige |
 
 **Plugin template:**
 ```ts
 export class X implements EnginePlugin {
   id = 'x';
   onInit(engine) { if(!engine.getPluginState(this.id)) engine.setPluginState(this.id,{...}); }
-  onTick(state, deltaSec) { return { resources, pluginState, level? }; }
+  onTick(state, deltaSec) { return { resources, pluginState:{ [this.id]:{...} }, level? }; }
+  onKill(state, killCount) { return { pluginState:{ [this.id]:{...} } }; } // optional, called per kill
   getActionMetadata(state) { return { upgrade:{key,cost,nextValue} }; }
-  onAction(state, action) { return { resources, pluginState, level? }; }
+  onAction(state, action) { return { resources, pluginState:{ [this.id]:{...} }, level? }; }
 }
 ```
+> **Important:** `pluginState` returns must only include the plugin's own key — `{ [this.id]: {...} }`. Do NOT spread `...state.pluginState` — the engine merges safely at the key level.
 
 ## Persistence
 - `LocalDataRepository` — `StorageAdapter` → `idlerpg_user_{id}` key
@@ -104,4 +111,4 @@ npx vitest run                       # Unit tests
 - **Phase 1:** Complete (core engine, persistence, plugin polish, UI, tests)
 - **Phase 2:** Complete — Firebase, Prestige, Energy (spells), Achievements, Debug, UI library, web entry, Onboarding, Analytics
 - **Phase 3:** Complete — spell upgrades, damage numbers, equipment/gear, stage themes, anonymous cloud auth, haptic feedback
-- **Phase 4:** Planned — Network Nodes, Daily Missions, Combo System, Skill Tree, Boss Rush, Narrative Events, Leaderboard
+- **Phase 4:** Complete — Engine bug fixes (pluginState corruption, offline chunking, onKill hook, equipment decoupling), NetworkPlugin, ComboPlugin, MissionPlugin, BossPlugin, SkillTreePlugin

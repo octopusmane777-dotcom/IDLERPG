@@ -27,7 +27,6 @@ export class DebugPlugin implements EnginePlugin {
       const dState: DebugPluginState = state.pluginState[this.id];
       return {
         pluginState: {
-          ...state.pluginState,
           [this.id]: { visible: !(dState?.visible ?? false) },
         },
       };
@@ -49,7 +48,6 @@ export class DebugPlugin implements EnginePlugin {
         level: newLevel,
         generationRates: { gold: newGps },
         pluginState: {
-          ...state.pluginState,
           progression: {
             generation: { resource: 'gold', nextAmount: 1, cost: generationCost },
             level: { level: newLevel, cost: levelUpCost },
@@ -61,7 +59,6 @@ export class DebugPlugin implements EnginePlugin {
     if (action.type === 'TIME_WARP') {
       return {
         pluginState: {
-          ...state.pluginState,
           _timeWarpSec: (action.seconds ?? 3600),
         },
       };

@@ -31,6 +31,7 @@ export interface EnginePlugin {
   onInit?(engine: any): void;
   onTick?(state: GameState, deltaSec: number): Partial<GameState> | void;
   onAction?(state: GameState, action: any): Partial<GameState> | void;
+  onKill?(state: GameState, killCount: number): Partial<GameState> | void;
   getActionMetadata?(state: GameState): Record<string, any> | undefined;
 }
 
@@ -253,16 +254,16 @@ export class BaseGameEngine {
             if (updates) this.applyStateUpdates(updates);
           }
         });
-        // Trigger gear drops for each kill that happened during this tick
         if (this.state.level > oldLevel) {
           const kills = this.state.level - oldLevel;
-          const equipPlugin = this.plugins.get('equipment');
-          if (equipPlugin?.onAction) {
-            for (let i = 0; i < kills; i++) {
-              const dropUpdates = equipPlugin.onAction(this.state, { type: 'GENERATE_DROP' });
-              if (dropUpdates) this.applyStateUpdates(dropUpdates);
+          this.plugins.forEach(plugin => {
+            if (this.isPluginEnabled(plugin.id) && plugin.onKill) {
+              for (let i = 0; i < kills; i++) {
+                const updates = plugin.onKill!(this.state, 1);
+                if (updates) this.applyStateUpdates(updates);
+              }
             }
-          }
+          });
         }
 
         this.state.lastTick = timestamp;
@@ -276,13 +277,16 @@ export class BaseGameEngine {
           const updates = plugin.onAction(this.state, pluginAction);
           if (updates) {
             this.applyStateUpdates(updates);
-            // Trigger gear drop on kill (level increased)
             if (this.state.level > oldLevel) {
-              const equipPlugin = this.plugins.get('equipment');
-              if (equipPlugin?.onAction) {
-                const dropUpdates = equipPlugin.onAction(this.state, { type: 'GENERATE_DROP' });
-                if (dropUpdates) this.applyStateUpdates(dropUpdates);
-              }
+              const kills = this.state.level - oldLevel;
+              this.plugins.forEach(p => {
+                if (this.isPluginEnabled(p.id) && p.onKill) {
+                  for (let i = 0; i < kills; i++) {
+                    const killUpdates = p.onKill!(this.state, 1);
+                    if (killUpdates) this.applyStateUpdates(killUpdates);
+                  }
+                }
+              });
             }
           }
         }
@@ -307,20 +311,41 @@ export class BaseGameEngine {
     const cappedSec = Math.min(elapsedSec, this.offlineCapSec);
     if (cappedSec <= 0) return;
 
+    const CHUNK_SEC = 1;
     let totalBaseGold = 0;
+    let simTime = 0;
 
+    // Apply base generation linearly (no need to chunk — it's linear math)
     Object.entries(this.state.generationRates).forEach(([resource, rate]) => {
       const gain = rate * cappedSec;
       this.state.resources[resource] = (this.state.resources[resource] || 0) + gain;
       if (resource === 'gold') totalBaseGold += gain;
     });
 
-    this.plugins.forEach(plugin => {
-      if (this.isPluginEnabled(plugin.id) && plugin.onTick) {
-        const updates = plugin.onTick(this.state, cappedSec);
-        if (updates) this.applyStateUpdates(updates);
+    // Chunk plugin ticks into 1-second slices so time-dependent logic (kill counts,
+    // cooldowns, combo resets) behaves correctly over large offline durations
+    while (simTime < cappedSec) {
+      const delta = Math.min(CHUNK_SEC, cappedSec - simTime);
+      const oldLevel = this.state.level;
+      this.plugins.forEach(plugin => {
+        if (this.isPluginEnabled(plugin.id) && plugin.onTick) {
+          const updates = plugin.onTick(this.state, delta);
+          if (updates) this.applyStateUpdates(updates);
+        }
+      });
+      if (this.state.level > oldLevel) {
+        const kills = this.state.level - oldLevel;
+        this.plugins.forEach(plugin => {
+          if (this.isPluginEnabled(plugin.id) && plugin.onKill) {
+            for (let i = 0; i < kills; i++) {
+              const updates = plugin.onKill!(this.state, 1);
+              if (updates) this.applyStateUpdates(updates);
+            }
+          }
+        });
       }
-    });
+      simTime += delta;
+    }
 
     this.state.lastTick = now;
     this.notify();

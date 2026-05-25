@@ -68,15 +68,13 @@ export class AdaptiveModule implements EnginePlugin {
       hp = maxHp;
     }
 
-    const nextPluginState = {
-      ...state.pluginState,
-      [this.id]: { ...adaptiveState, monsterHp: hp, monsterMaxHp: maxHp, monstersDefeated: defeated },
-    };
-
     const nextResources = { ...state.resources };
     if (goldGained > 0) nextResources.gold = (nextResources.gold || 0) + goldGained;
 
-    const result: any = { resources: nextResources, pluginState: nextPluginState };
+    const result: any = {
+      resources: nextResources,
+      pluginState: { [this.id]: { ...adaptiveState, monsterHp: hp, monsterMaxHp: maxHp, monstersDefeated: defeated } },
+    };
     if (newLevel !== state.level) result.level = newLevel;
     return result;
   }
@@ -100,7 +98,8 @@ export class AdaptiveModule implements EnginePlugin {
 
     if (action.type === 'TAP_DAMAGE') {
       const gear = this.getGearBonuses(state);
-      const tapDmg = (adaptiveState.tapDamage || 1) + gear.tapDamage;
+      const comboMult = state.pluginState.combo?.multiplier ?? 1;
+      const tapDmg = ((adaptiveState.tapDamage || 1) + gear.tapDamage) * comboMult;
       const hp = Math.max(0, adaptiveState.monsterHp - tapDmg);
       let defeated = adaptiveState.monstersDefeated;
       let maxHp = adaptiveState.monsterMaxHp;
@@ -115,12 +114,12 @@ export class AdaptiveModule implements EnginePlugin {
         return {
           level: newLevel,
           resources: { ...state.resources, gold: (state.resources.gold || 0) + goldGained },
-          pluginState: { ...state.pluginState, [this.id]: { ...adaptiveState, monsterHp: maxHp, monsterMaxHp: maxHp, monstersDefeated: defeated } },
+          pluginState: { [this.id]: { ...adaptiveState, monsterHp: maxHp, monsterMaxHp: maxHp, monstersDefeated: defeated } },
         };
       }
 
       return {
-        pluginState: { ...state.pluginState, [this.id]: { ...adaptiveState, monsterHp: hp } },
+        pluginState: { [this.id]: { ...adaptiveState, monsterHp: hp } },
       };
     }
 
@@ -131,18 +130,15 @@ export class AdaptiveModule implements EnginePlugin {
       if (gold >= cost) {
         const newTapDamage = (adaptiveState.tapDamage || 1) + 1;
         const nextResources = { ...state.resources, gold: gold - cost };
-        const nextPluginState = {
-          ...state.pluginState,
-          [this.id]: {
-            ...adaptiveState,
-            tapDamage: newTapDamage,
-            upgrade: { key: 'UPGRADE_TAP', cost: Math.round(15 + newTapDamage * 8), nextValue: newTapDamage + 1 }
-          }
-        };
-
         return {
           resources: nextResources,
-          pluginState: nextPluginState,
+          pluginState: {
+            [this.id]: {
+              ...adaptiveState,
+              tapDamage: newTapDamage,
+              upgrade: { key: 'UPGRADE_TAP', cost: Math.round(15 + newTapDamage * 8), nextValue: newTapDamage + 1 },
+            },
+          },
         };
       }
     }

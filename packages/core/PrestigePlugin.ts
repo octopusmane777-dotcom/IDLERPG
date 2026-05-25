@@ -54,7 +54,6 @@ export class PrestigePlugin implements EnginePlugin {
     return {
       resources: nextResources,
       pluginState: {
-        ...state.pluginState,
         [this.id]: {
           ...pState,
           lifetimeGold: newLifetime,
@@ -95,35 +94,36 @@ export class PrestigePlugin implements EnginePlugin {
     const newCores = pState.cores + 1;
     const newMultiplier = 1 + newCores * BONUS_PER_CORE;
 
+    const resetPluginState: Record<string, any> = {
+      [this.id]: { ...pState, cores: newCores, bonusMultiplier: newMultiplier },
+    };
+    // Grant a skill point on each prestige
+    if (state.pluginState.skilltree) {
+      const st = state.pluginState.skilltree;
+      resetPluginState.skilltree = { ...st, points: (st.points || 0) + 1 };
+    }
+    if (state.pluginState.adaptive) {
+      const tapDamage = state.pluginState.adaptive.tapDamage || 1;
+      resetPluginState.adaptive = {
+        monsterHp: 10,
+        monsterMaxHp: 10,
+        monstersDefeated: 0,
+        tapDamage,
+        upgrade: { key: 'UPGRADE_TAP', cost: Math.round(15 + tapDamage * 8), nextValue: tapDamage + 1 },
+      };
+    }
+    if (state.pluginState.progression) {
+      resetPluginState.progression = {
+        generation: { resource: 'gold', nextAmount: 1, cost: Math.round(10 + 1 * 2) },
+        level: { level: 1, cost: Math.round(40) },
+      };
+    }
+
     return {
       resources: { gold: 0 },
-      generationRates: { gold: 1 }, // reset to base
+      generationRates: { gold: 1 },
       level: 1,
-      pluginState: {
-        ...state.pluginState,
-        [this.id]: {
-          ...pState,
-          cores: newCores,
-          bonusMultiplier: newMultiplier,
-        },
-        // Reset adaptive module state on prestige
-        ...(state.pluginState.adaptive ? {
-          adaptive: {
-            monsterHp: 10,
-            monsterMaxHp: 10,
-            monstersDefeated: 0,
-            playerDps: 1,
-            upgrade: { key: 'UPGRADE_DPS', cost: 23, nextValue: 2 },
-          },
-        } : {}),
-        // Reset progression costs
-        ...(state.pluginState.progression ? {
-          progression: {
-            generation: { resource: 'gold', nextAmount: 1, cost: Math.round(10 + 1 * 2) },
-            level: { level: 1, cost: Math.round(40) },
-          },
-        } : {}),
-      },
+      pluginState: resetPluginState,
     };
   }
 }

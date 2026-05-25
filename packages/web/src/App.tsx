@@ -9,6 +9,11 @@ import { AchievementPlugin } from '@idlerpg/core/AchievementPlugin';
 import { DebugPlugin } from '@idlerpg/core/DebugPlugin';
 import { OnboardingPlugin } from '@idlerpg/core/OnboardingPlugin';
 import { AnalyticsPlugin } from '@idlerpg/core/AnalyticsPlugin';
+import { NetworkPlugin } from '@idlerpg/core/NetworkPlugin';
+import { ComboPlugin } from '@idlerpg/core/ComboPlugin';
+import { MissionPlugin } from '@idlerpg/core/MissionPlugin';
+import { BossPlugin } from '@idlerpg/core/BossPlugin';
+import { SkillTreePlugin } from '@idlerpg/core/SkillTreePlugin';
 import { LocalDataRepository } from '@idlerpg/core/LocalDataRepository';
 import { CompositeRepository } from '@idlerpg/core/CompositeRepository';
 import { ProgressBar, UpgradeCard } from '@idlerpg/ui';
@@ -36,6 +41,11 @@ const engine = new GameEngine({
     new DebugPlugin(),
     new OnboardingPlugin(),
     new AnalyticsPlugin(),
+    new NetworkPlugin(),
+    new ComboPlugin(),
+    new MissionPlugin(),
+    new BossPlugin(),
+    new SkillTreePlugin(),
   ],
   repo: repository,
   userId: 'player',
@@ -68,6 +78,11 @@ export default function App() {
 
   const meta: any = engine.getUpgradeMetadata();
   const gold = state.resources.gold ?? 0;
+  const combo = meta.plugins['combo']?.combo;
+  const boss = meta.plugins['boss']?.boss;
+  const network = meta.plugins['network']?.network;
+  const missions = meta.plugins['missions']?.missions;
+  const skilltree = meta.plugins['skilltree']?.skilltree;
   const gps = state.generationRates.gold ?? 0;
 
   useEffect(() => {
@@ -302,7 +317,106 @@ export default function App() {
         )}
       </div>
 
-      <button style={styles.btn} onClick={() => engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 1 } })}>
+      {combo?.count > 2 && (
+        <div style={{ ...styles.card, border: `1px solid ${combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700'}`, textAlign: 'center' }}>
+          <div style={{ fontSize: 24, fontWeight: 900, color: combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700' }}>
+            x{combo.multiplier.toFixed(1)} COMBO!
+          </div>
+        </div>
+      )}
+
+      {boss?.bossActive && (
+        <div style={{ ...styles.card, border: '2px solid #ff4400', backgroundColor: '#1a0000' }}>
+          <div style={{ ...styles.label, color: '#ff4400' }}>BOSS ALERT — {boss.bossTimer.toFixed(0)}s remaining</div>
+          <ProgressBar current={boss.bossHp} max={boss.bossMaxHp} color="#ff4400" />
+          <div style={{ ...styles.small }}>{boss.bossHp.toFixed(0)} / {boss.bossMaxHp} HP</div>
+          <button style={{ ...styles.btn, backgroundColor: '#ff4400', marginTop: 8 }}
+            onClick={() => {
+              const tapDmg = engine.getState().pluginState.adaptive?.tapDamage ?? 1;
+              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: tapDmg } } });
+            }}>
+            Attack Boss ({(engine.getState().pluginState.adaptive?.tapDamage ?? 1)} dmg)
+          </button>
+        </div>
+      )}
+
+      <div style={{ ...styles.card, border: '1px solid #00b4d8' }}>
+        <div style={styles.label}>NETWORK NODES</div>
+        <div style={{ ...styles.small, marginBottom: 8 }}>{(network?.totalOutput ?? 0).toFixed(1)} CPU/s passive income</div>
+        {(network?.nodes ?? []).map((n: any) => (
+          <div key={n.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <span style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>{n.name} ({n.count})</span>
+              <div style={{ color: '#888', fontSize: 11 }}>{n.description} | +{n.rate.toFixed(1)}/s total</div>
+            </div>
+            <button
+              style={{ padding: '6px 14px', borderRadius: 6, border: 'none', backgroundColor: n.canBuy ? '#00b4d8' : '#333', color: n.canBuy ? '#000' : '#555', fontWeight: 700, cursor: n.canBuy ? 'pointer' : 'not-allowed', fontSize: 12 }}
+              onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: n.id } } })}
+              disabled={!n.canBuy}
+            >
+              {n.nextCost >= 1000000 ? (n.nextCost / 1000000).toFixed(1) + 'M' : n.nextCost >= 1000 ? (n.nextCost / 1000).toFixed(0) + 'K' : n.nextCost}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...styles.card, border: '1px solid #04d361' }}>
+        <div style={styles.label}>DAILY MISSIONS</div>
+        <div style={{ ...styles.small, marginBottom: 6 }}>Resets in {missions?.hoursUntilReset ?? 0}h</div>
+        {(missions?.list ?? []).map((m: any) => (
+          <div key={m.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, opacity: m.claimed ? 0.4 : 1 }}>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <div style={{ color: m.claimed ? '#04d361' : m.completed ? '#ffd700' : '#aaa', fontWeight: 700, fontSize: 13 }}>
+                {m.claimed ? '✓' : m.completed ? '●' : '○'} {m.description}
+              </div>
+              <div style={{ color: '#888', fontSize: 11 }}>{m.progress}/{m.target} | +{m.reward} CPU</div>
+            </div>
+            {m.completed && !m.claimed && (
+              <button
+                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', backgroundColor: '#04d361', color: '#000', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}
+                onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'CLAIM_MISSION', missionId: m.id } } })}
+              >
+                Claim
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...styles.card, border: '1px solid #ffd700' }}>
+        <div style={styles.label}>SKILL TREE — {skilltree?.points ?? 0} point{(skilltree?.points ?? 0) !== 1 ? 's' : ''}</div>
+        <div style={{ ...styles.small, marginBottom: 8 }}>Earn points by prestiging.</div>
+        {(['HACK', 'INFRA', 'GHOST'] as const).map(branch => (
+          <div key={branch} style={{ width: '100%', marginTop: 10 }}>
+            <div style={{ color: '#ffd700', fontWeight: 700, fontSize: 12, marginBottom: 4 }}>{branch} Branch</div>
+            {(skilltree?.nodes ?? []).filter((n: any) => n.branch === branch).map((n: any) => (
+              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, opacity: n.locked ? 0.35 : 1 }}>
+                <div style={{ flex: 1 }}>
+                  <span style={{ color: n.unlocked ? '#04d361' : '#aaa', fontWeight: 600, fontSize: 13 }}>
+                    {n.unlocked ? '✓' : n.available ? '○' : '🔒'} {n.name}
+                  </span>
+                  <div style={{ color: '#888', fontSize: 11 }}>{n.description}</div>
+                </div>
+                {n.available && (
+                  <button
+                    style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #ffd700', backgroundColor: '#ffd70030', color: '#ffd700', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}
+                    onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: n.id } } })}
+                  >
+                    1pt
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <button style={styles.btn} onClick={() => {
+        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
+        engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 1 } });
+      }}>
         Self-Hack (+1 CPU)
       </button>
     </div>
