@@ -274,3 +274,180 @@ Rename all fantasy/generic labels to AI-empire-themed equivalents. Zero gameplay
 
 **Total files touched:** 4 (`EnergyPlugin.ts`, `EquipmentPlugin.ts`, `app/index.tsx`, `web/App.tsx`)
 **Zero engine changes:** tick, dispatch, notify, save/load, plugin lifecycle all untouched.
+
+---
+
+# Plan PHASE 4: Fun, retention & innovation
+
+## Goal
+Transform the game from a tech demo into something genuinely fun. Phase 4 focuses on three pillars:
+1. **Retention loops** — reasons to come back every session
+2. **Decision depth** — meaningful choices that reward strategy
+3. **Innovation** — mechanics that set this game apart from standard idle clones
+
+---
+
+## 1. Skill Tree (`packages/core/SkillTreePlugin.ts`)
+**The problem:** upgrades are linear. Players never make meaningful decisions.
+**The fix:** a branching skill tree where each prestige unlocks 1 skill point to spend on permanent paths.
+
+- [ ] Create `SkillTreePlugin`
+  - [ ] Three branches: `HACK` (tap/spell power), `INFRA` (auto DPS, energy cap), `GHOST` (gold multiplier, equipment drop rate)
+  - [ ] Each branch has 5 nodes; each node costs 1 skill point and has a prerequisite
+  - [ ] Bonuses applied multiplicatively in `AdaptiveModule` and `EnergyPlugin` via shared state read
+  - [ ] Action: `UNLOCK_SKILL` — validates point budget and prerequisites
+  - [ ] `getActionMetadata()` returns tree structure, unlocked nodes, available points
+- [ ] Skill tree UI in Expo app
+  - [ ] New tab "Skill Tree" in bottom drawer
+  - [ ] Visual tree with nodes (locked/available/unlocked) and branch lines
+  - [ ] Each node shows name, description, cost, and bonus value
+- [ ] Export from `packages/core/index.ts` and wire into both apps
+
+---
+
+## 2. Daily Mission System (`packages/core/MissionPlugin.ts`)
+**The problem:** no reason to return daily. Sessions have no narrative purpose.
+**The fix:** 3 rotating daily missions that refresh every 24 hours and grant meaningful rewards.
+
+- [ ] Create `MissionPlugin`
+  - [ ] Pool of 12+ mission templates: "Deal 1000 tap damage", "Kill 50 enemies", "Cast 10 spells", "Reach stage X", "Spend Y compute on upgrades", "Prestige once", etc.
+  - [ ] Each day: deterministically pick 3 missions using `Math.floor(Date.now() / 86400000)` as seed
+  - [ ] Track per-mission progress in plugin state; check completion on `onTick` and `onAction`
+  - [ ] Rewards: compute shards (new sub-currency), skill points, or large gold lump sums
+  - [ ] `getActionMetadata()` returns missions array with id, description, progress, target, reward, completed
+  - [ ] Action: `CLAIM_MISSION` — marks claimed, grants reward; prevents double-claim
+- [ ] Mission UI
+  - [ ] New tab "Missions" in bottom drawer (or mini-card above monster area)
+  - [ ] 3 mission rows with progress bars and claim buttons
+  - [ ] Countdown timer to next reset
+- [ ] Export from `packages/core/index.ts` and wire into both apps
+
+---
+
+## 3. Boss Rush Mode (`packages/core/BossPlugin.ts`)
+**The problem:** combat is passive and never tense. Players tap without stakes.
+**The fix:** optional high-stakes boss fights that appear every 10 stages with a 30-second timer. Kill it for massive rewards; fail and lose nothing.
+
+- [ ] Create `BossPlugin`
+  - [ ] Every 10 stage kills triggers a boss spawn (tracked in plugin state)
+  - [ ] Boss has 10× normal HP and a 30-second window to kill it (`bossTimer` countdown in `onTick`)
+  - [ ] Boss rewards: `3× gold` + guaranteed rare equipment drop + +1 skill point
+  - [ ] If timer expires, boss retreats silently — no penalty
+  - [ ] State: `{ bossActive, bossHp, bossMaxHp, bossTimer, bossesDefeated }`
+  - [ ] Integrates with `AdaptiveModule`: `TAP_DAMAGE` and spell actions route through `BossPlugin` when boss is active
+  - [ ] `getActionMetadata()` returns boss state for UI
+- [ ] Boss UI in monster area
+  - [ ] Boss indicator replaces normal enemy (different emoji + "BOSS" label + red HP bar)
+  - [ ] Countdown timer displayed prominently
+  - [ ] Screen flash / haptic on boss spawn
+- [ ] Export from `packages/core/index.ts` and wire into both apps
+
+---
+
+## 4. Idle Income Overhaul — "Network Nodes" (`packages/core/NetworkPlugin.ts`)
+**The problem:** passive income (`generationRates`) is locked to 0; the only income source is killing. This makes offline progress nearly zero and early-game sessions feel empty.
+**The fix:** purchasable "Network Nodes" (think: generators in Cookie Clicker) that produce compute passively. Separate from the `generationRates` system — they live entirely in plugin state.
+
+- [ ] Create `NetworkPlugin`
+  - [ ] 5 node types: Bot Farm (cheap, slow), Scraper Array, Proxy Cluster, AI Server, Quantum Core (expensive, fast)
+  - [ ] Each type has a base rate and a count; total output = Σ(count × rate) per second
+  - [ ] Prices double every purchase (classic idle formula)
+  - [ ] Output applied in `onTick` as compute added to resources
+  - [ ] Action: `BUY_NODE` — validates gold, deducts cost, increments count
+  - [ ] `getActionMetadata()` returns node array with name, count, cost, rate, totalOutput
+- [ ] Network UI
+  - [ ] Replace "System Upgrades" tab content with combined: existing upgrades (tap/level) + node purchase list below
+  - [ ] Each node row: name, owned count, rate/sec, next cost, buy button
+- [ ] Export from `packages/core/index.ts` and wire into both apps
+- [ ] Update `doc.md` passive income section
+
+---
+
+## 5. Combo / Chain System (UI-side, no new plugin needed)
+**The problem:** tapping feels mechanical. There's no skill expression.
+**The fix:** a combo multiplier that builds up with rapid taps and decays when idle. Pure UI/state logic.
+
+- [ ] Track `comboCount` and `comboMultiplier` in `AdaptiveModule` state
+  - [ ] Each `TAP_DAMAGE` within 1.5 seconds increments `comboCount` (cap: 20)
+  - [ ] `comboMultiplier = 1 + comboCount * 0.1` applied to tap damage
+  - [ ] `comboCount` resets to 0 if 1.5s passes without a tap (tracked via `lastTapTime` in plugin state)
+  - [ ] Update `onAction` and `onTick` in `AdaptiveModule`
+- [ ] Combo UI
+  - [ ] Combo counter above monster ("×1.5 COMBO!" when active)
+  - [ ] Color shifts from white → yellow → orange → red at milestone counts
+  - [ ] Burst animation pulse on the monster area at max combo
+
+---
+
+## 6. Leaderboard / Soft Social (`packages/core/LeaderboardPlugin.ts` + Edge Function)
+**The problem:** no social proof or external motivation.
+**The fix:** anonymous opt-in leaderboard — top players by stage, prestige cores, and monsters defeated. Stored in Supabase.
+
+- [ ] Create `leaderboard` Supabase table
+  - [ ] Columns: `user_id`, `stage`, `prestige_cores`, `monsters_defeated`, `updated_at`
+  - [ ] RLS: each user can only write their own row; anyone can read top 50
+- [ ] Deploy Supabase Edge Function `submit-score` that upserts a player's score
+- [ ] Create `LeaderboardPlugin`
+  - [ ] Opt-in (disabled by default); submits score to edge function every 5 minutes when enabled
+  - [ ] Fetches top-10 leaderboard on enable and every 10 minutes
+  - [ ] Stores `{ enabled, myRank, topPlayers: [{rank,stage,cores,defeated}] }` in plugin state
+  - [ ] Action: `TOGGLE_LEADERBOARD`
+- [ ] Leaderboard UI tab in both apps
+  - [ ] Ranked list (top 10 anonymous entries)
+  - [ ] Player's own rank highlighted
+  - [ ] Opt-in toggle with privacy notice
+- [ ] Export and wire into both apps
+
+---
+
+## 7. Narrative Events System (`packages/core/EventPlugin.ts`)
+**The innovation:** scripted "world events" that fire at milestone stages — flavor text + temporary buffs. No other idle RPG in this genre does this at the plugin level.
+
+- [ ] Create `EventPlugin`
+  - [ ] Table of 10 events tied to stage milestones (stage 5, 10, 25, 50, 75, 100, 150, 200, 300, 500)
+  - [ ] Each event: title, flavor text (lore), buff type (`DOUBLE_GOLD / DOUBLE_TAP / FREE_SPELLS`), duration (60–300s)
+  - [ ] Active buff is applied multiplicatively in `onTick`
+  - [ ] State: `{ seenEvents: [], activeEvent: null, activeBuffExpiry: 0 }`
+  - [ ] Fires on `onTick` when `state.level` matches a threshold and hasn't been seen
+  - [ ] `getActionMetadata()` returns active event + remaining buff time
+- [ ] Event UI
+  - [ ] Full-screen modal pop-up with event title + flavor text + buff announcement
+  - [ ] Persists in a log accessible via "Intel Log" mini-tab
+- [ ] Export and wire into both apps
+
+---
+
+## 8. Accessibility & Retention Polish
+- [ ] Add "Return bonus" — if offline > 2 hours, show a "welcome back" screen with offline gains summary
+- [ ] Add session play time tracker in `AdaptiveModule` or standalone — show total play time in stats
+- [ ] Add "New!" badge on tabs that have unread content (new gear dropped, mission available, etc.)
+- [ ] Add settings option to disable haptics independently of sound
+- [ ] Add a minimal "Stats" tab showing lifetime stats: total taps, total gold earned, total kills, time played
+
+---
+
+## Engine / Infra Changes Required
+- [ ] `BaseTypes.ts`: add `comboCount`, `lastTapTime` to `AdaptiveModuleState` (minor state extension)
+- [ ] `BaseTypes.ts`: add `missionProgress` partial tracking hook in dispatch (or handle fully in plugin)
+- [ ] `GameEngine.ts`: no changes needed — plugins are self-contained
+
+---
+
+## Prioritized Implementation Order
+1. **Network Nodes** (fills the idle income gap — most impactful for playability)
+2. **Daily Missions** (immediate retention driver)
+3. **Combo System** (zero-risk, high-feel improvement)
+4. **Skill Tree** (strategic depth, unlocked by prestige — meaningful decision)
+5. **Boss Rush** (combat tension and milestone excitement)
+6. **Narrative Events** (innovation, lore, differentiation)
+7. **Leaderboard** (social layer, needs Supabase setup)
+8. **Polish** (return bonus, stats tab, badges)
+
+---
+
+## Success Criteria
+- A new player can meaningfully progress for 30 minutes without hitting a wall
+- Returning after 8 hours of offline feels rewarding (Network Nodes passive income)
+- Each prestige feels like a meaningful reset with clear forward progress (Skill Tree)
+- Daily sessions have a purpose beyond "check in and tap" (Missions)
+- The boss system creates at least 3 moments of genuine tension per hour
