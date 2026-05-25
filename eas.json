@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "projectRoot": "./packages/app",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "projectRoot": "./packages/app",
+      "distribution": "internal"
+    },
+    "production": {
+      "projectRoot": "./packages/app"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
