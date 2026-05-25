@@ -51,9 +51,20 @@ const engine = new GameEngine({
   userId: 'player',
 });
 
+type Tab = 'core' | 'combat' | 'progression' | 'network' | 'hardware' | 'dev';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'core', label: 'Core' },
+  { id: 'combat', label: 'Combat' },
+  { id: 'progression', label: 'Progress' },
+  { id: 'network', label: 'Network' },
+  { id: 'hardware', label: 'Hardware' },
+  { id: 'dev', label: 'Dev' },
+];
+
 export default function App() {
   const [state, setState] = useState(engine.getState());
-  const [combatEnabled, setCombatEnabled] = useState(engine.isPluginEnabled('adaptive'));
+  const [activeTab, setActiveTab] = useState<Tab>('core');
   const [message, setMessage] = useState<string | null>(null);
   const msgRef = useRef<HTMLDivElement>(null);
 
@@ -100,18 +111,6 @@ export default function App() {
     return engine.subscribe(setState);
   }, []);
 
-  const handleToggleCombat = () => {
-    engine.togglePlugin('adaptive', !combatEnabled);
-    setCombatEnabled(!combatEnabled);
-  };
-
-  const stageEmoji = (level: number) => {
-    if (level >= 40) return '⚔️';
-    if (level >= 30) return '🏛️';
-    if (level >= 20) return '💰';
-    if (level >= 10) return '🏢';
-    return '🔌';
-  };
   const stageName = (level: number) => {
     if (level >= 40) return 'Military';
     if (level >= 30) return 'Gov';
@@ -124,45 +123,8 @@ export default function App() {
     monsterHp: 0, monsterMaxHp: 0, monstersDefeated: 0, playerDps: 0,
   };
 
-  return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>AI Overlord</h1>
-      <div ref={msgRef} style={styles.message}>{message}</div>
-
-      {meta.plugins['onboarding']?.onboarding && !meta.plugins['onboarding']?.onboarding?.completed && (
-        <div style={{ ...styles.card, border: '1px solid #ffd86b', backgroundColor: '#2a2618' }}>
-          <div style={styles.label}>
-            Tutorial ({meta.plugins['onboarding']?.onboarding?.step + 1}/{meta.plugins['onboarding']?.onboarding?.total})
-          </div>
-          <div style={{ ...styles.value, fontSize: 18 }}>
-            {meta.plugins['onboarding']?.onboarding?.title}
-          </div>
-          <div style={{ ...styles.small, color: '#ffd86b' }}>
-            {meta.plugins['onboarding']?.onboarding?.tip}
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 14, width: '100%' }}>
-            <button
-              style={{ ...styles.btn, flex: 1, backgroundColor: '#ffd86b', color: '#121214' }}
-              onClick={() => {
-                engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'onboarding', action: { type: 'NEXT_STEP' } } });
-                showMessage('Step completed!');
-              }}
-            >
-              Next
-            </button>
-            <button
-              style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }}
-              onClick={() => {
-                engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'onboarding', action: { type: 'SKIP_TUTORIAL' } } });
-                showMessage('Tutorial skipped');
-              }}
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      )}
-
+  const renderCore = () => (
+    <>
       <div style={styles.card}>
         <div style={styles.label}>CPU POWER</div>
         <div style={styles.value}>{gold.toFixed(2)}</div>
@@ -181,13 +143,13 @@ export default function App() {
       />
 
       <div style={{ ...styles.card, border: '1px solid #e94560' }}>
-         <div style={styles.label}>ADAPTIVE MODULE</div>
-         <div style={styles.value}>{stageName(state.level)} — Tier {state.level}</div>
+        <div style={styles.label}>ADAPTIVE MODULE</div>
+        <div style={styles.value}>{stageName(state.level)} — Tier {state.level}</div>
         <div style={styles.small}>Compromise targets to advance tier (+2 daemon rate)</div>
         <div style={styles.value}>Integrity: {combatState.monsterHp.toFixed(1)} / {combatState.monsterMaxHp}</div>
-          <ProgressBar current={combatState.monsterHp} max={combatState.monsterMaxHp} color="#e94560" />
-          <div style={styles.small}>Compromised: {combatState.monstersDefeated}</div>
-          <div style={styles.small}>Hack Speed: {combatState.playerDps.toFixed(1)}</div>
+        <ProgressBar current={combatState.monsterHp} max={combatState.monsterMaxHp} color="#e94560" />
+        <div style={styles.small}>Compromised: {combatState.monstersDefeated}</div>
+        <div style={styles.small}>Hack Speed: {combatState.playerDps.toFixed(1)}</div>
         <button
           style={{ ...styles.btn, ...(!(gold >= (meta.plugins['adaptive']?.upgrade?.cost ?? 0)) ? styles.btnDisabled : {}) }}
           onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'adaptive', action: { type: 'UPGRADE_DPS', payload: { cost: meta.plugins['adaptive']?.upgrade?.cost } } } })}
@@ -197,34 +159,74 @@ export default function App() {
         </button>
       </div>
 
-       <div style={{ ...styles.card, border: '1px solid #00b4d8' }}>
-         <div style={styles.label}>CPU CYCLES</div>
-         <div style={styles.value}>{(meta.plugins['energy']?.energy?.current ?? 0).toFixed(1)} / {meta.plugins['energy']?.energy?.max ?? 50}</div>
-         <ProgressBar current={meta.plugins['energy']?.energy?.current ?? 0} max={meta.plugins['energy']?.energy?.max ?? 50} color="#00b4d8" />
-         {(meta.plugins['energy']?.energy?.spells ?? []).map((s: any) => (
-           <div key={s.id} style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-             <div style={{ flex: 1, textAlign: 'left' }}>
-               <div style={{ color: s.color, fontWeight: 700, fontSize: 14 }}>{s.name} <span style={{ color: '#888', fontSize: 11 }}>Lv.{s.level}</span></div>
-               <div style={{ color: '#888', fontSize: 11 }}>×{s.multiplier} dmg | {s.cooldown}s CD</div>
-             </div>
-             <button
-               style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid ' + s.color, backgroundColor: s.color + '22', color: s.color, fontWeight: 700, cursor: s.canCast ? 'pointer' : 'not-allowed', opacity: s.canCast ? 1 : 0.4, fontSize: 12 }}
-               onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.id } } })}
-               disabled={!s.canCast}
-             >
-               {s.cost}⚡
-             </button>
-             <button
-               style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #8257e5', backgroundColor: s.canUpgrade ? '#8257e530' : '#1d1d22', color: s.canUpgrade ? '#8257e5' : '#444', fontWeight: 700, cursor: s.canUpgrade ? 'pointer' : 'not-allowed', fontSize: 12 }}
-               onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.upgradeAction } } })}
-               disabled={!s.canUpgrade}
-             >
-               {s.upgradeCost}
-             </button>
-           </div>
-         ))}
-       </div>
+      <button style={styles.btn} onClick={() => {
+        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
+        engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 1 } });
+      }}>
+        Self-Hack (+1 CPU)
+      </button>
+    </>
+  );
 
+  const renderCombat = () => (
+    <>
+      {combo?.count > 2 && (
+        <div style={{ ...styles.card, border: `1px solid ${combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700'}`, textAlign: 'center' }}>
+          <div style={{ fontSize: 24, fontWeight: 900, color: combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700' }}>
+            x{combo.multiplier.toFixed(1)} COMBO!
+          </div>
+        </div>
+      )}
+
+      {boss?.bossActive && (
+        <div style={{ ...styles.card, border: '2px solid #ff4400', backgroundColor: '#1a0000' }}>
+          <div style={{ ...styles.label, color: '#ff4400' }}>BOSS ALERT — {boss.bossTimer.toFixed(0)}s remaining</div>
+          <ProgressBar current={boss.bossHp} max={boss.bossMaxHp} color="#ff4400" />
+          <div style={styles.small}>{boss.bossHp.toFixed(0)} / {boss.bossMaxHp} HP</div>
+          <button style={{ ...styles.btn, backgroundColor: '#ff4400', marginTop: 8 }}
+            onClick={() => {
+              const tapDmg = engine.getState().pluginState.adaptive?.tapDamage ?? 1;
+              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: tapDmg } } });
+            }}>
+            Attack Boss ({(engine.getState().pluginState.adaptive?.tapDamage ?? 1)} dmg)
+          </button>
+        </div>
+      )}
+
+      <div style={{ ...styles.card, border: '1px solid #00b4d8' }}>
+        <div style={styles.label}>CPU CYCLES</div>
+        <div style={styles.value}>{(meta.plugins['energy']?.energy?.current ?? 0).toFixed(1)} / {meta.plugins['energy']?.energy?.max ?? 50}</div>
+        <ProgressBar current={meta.plugins['energy']?.energy?.current ?? 0} max={meta.plugins['energy']?.energy?.max ?? 50} color="#00b4d8" />
+        {(meta.plugins['energy']?.energy?.spells ?? []).map((s: any) => (
+          <div key={s.id} style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <div style={{ color: s.color, fontWeight: 700, fontSize: 14 }}>{s.name} <span style={{ color: '#888', fontSize: 11 }}>Lv.{s.level}</span></div>
+              <div style={{ color: '#888', fontSize: 11 }}>×{s.multiplier} dmg | {s.cooldown}s CD</div>
+            </div>
+            <button
+              style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid ' + s.color, backgroundColor: s.color + '22', color: s.color, fontWeight: 700, cursor: s.canCast ? 'pointer' : 'not-allowed', opacity: s.canCast ? 1 : 0.4, fontSize: 12 }}
+              onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.id } } })}
+              disabled={!s.canCast}
+            >
+              {s.cost}⚡
+            </button>
+            <button
+              style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #4a8fe8', backgroundColor: s.canUpgrade ? '#4a8fe830' : '#1d1d22', color: s.canUpgrade ? '#4a8fe8' : '#444', fontWeight: 700, cursor: s.canUpgrade ? 'pointer' : 'not-allowed', fontSize: 12 }}
+              onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.upgradeAction } } })}
+              disabled={!s.canUpgrade}
+            >
+              {s.upgradeCost}
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+
+  const renderProgression = () => (
+    <>
       <div style={{ ...styles.card, border: '1px solid #ffd86b' }}>
         <div style={styles.label}>EVOLUTION SYSTEM</div>
         <div style={styles.value}>Consciousness Shards: {meta.plugins['prestige']?.prestige?.cores ?? 0}</div>
@@ -238,6 +240,34 @@ export default function App() {
         </button>
       </div>
 
+      <div style={{ ...styles.card, border: '1px solid #ffd700' }}>
+        <div style={styles.label}>SKILL TREE — {skilltree?.points ?? 0} point{(skilltree?.points ?? 0) !== 1 ? 's' : ''}</div>
+        <div style={{ ...styles.small, marginBottom: 8 }}>Earn points by prestiging.</div>
+        {(['HACK', 'INFRA', 'GHOST'] as const).map(branch => (
+          <div key={branch} style={{ width: '100%', marginTop: 10 }}>
+            <div style={{ color: '#ffd700', fontWeight: 700, fontSize: 12, marginBottom: 4 }}>{branch} Branch</div>
+            {(skilltree?.nodes ?? []).filter((n: any) => n.branch === branch).map((n: any) => (
+              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, opacity: n.locked ? 0.35 : 1 }}>
+                <div style={{ flex: 1 }}>
+                  <span style={{ color: n.unlocked ? '#04d361' : '#aaa', fontWeight: 600, fontSize: 13 }}>
+                    {n.unlocked ? '✓' : n.available ? '○' : '🔒'} {n.name}
+                  </span>
+                  <div style={{ color: '#888', fontSize: 11 }}>{n.description}</div>
+                </div>
+                {n.available && (
+                  <button
+                    style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #ffd700', backgroundColor: '#ffd70030', color: '#ffd700', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}
+                    onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: n.id } } })}
+                  >
+                    1pt
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
       <div style={{ ...styles.card, border: '1px solid #04d361' }}>
         <div style={styles.label}>MILESTONES</div>
         <div style={styles.small}>
@@ -249,98 +279,11 @@ export default function App() {
           </div>
         ))}
       </div>
+    </>
+  );
 
-      <button
-        style={{ ...styles.btn, backgroundColor: '#333' }}
-        onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'TOGGLE_DEBUG' } } })}
-      >
-        {meta.plugins['debug']?.debug?.visible ? 'Hide Dev Tools' : 'Dev Tools'}
-      </button>
-
-      {meta.plugins['debug']?.debug?.visible && (
-        <div style={{ ...styles.card, border: '1px dashed #8257e5' }}>
-          <div style={styles.label}>DEVELOPER TOOLS</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 1000 } } })}>+1K CPU</button>
-            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 100000 } } })}>+100K</button>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 15 } } })}>Tier 15</button>
-            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 25 } } })}>Tier 25</button>
-          </div>
-        </div>
-      )}
-
-      <div style={{ ...styles.card, border: '1px solid #7b2ff7' }}>
-        <div style={styles.label}>⚙️ HARDWARE</div>
-        <div style={{ ...styles.small, marginBottom: 8 }}>Equipped</div>
-        {(['weapon','armor','ring'] as const).map(slot => {
-          const gearId = meta.plugins['equipment']?.equipment?.equipped?.[slot];
-          const gear = gearId ? (meta.plugins['equipment']?.equipment?.inventory ?? []).find((g: any) => g.id === gearId) : null;
-          return (
-            <div key={slot} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-              <span style={{ color: '#888', fontSize: 10, fontWeight: 700, minWidth: 60 }}>{slot.toUpperCase()}</span>
-              {gear ? (
-                <>
-                  <span style={{ color: gear.color || '#aaa', fontWeight: 700, fontSize: 13 }}>{gear.name}</span>
-                  <span style={{ color: '#888', fontSize: 10 }}>{Object.entries(gear.bonuses || {}).map(([k,v]: any) => `+${v} ${k}`).join(' | ')}</span>
-                  <button
-                    style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #555', backgroundColor: '#333', color: '#888', fontSize: 10, cursor: 'pointer' }}
-                    onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNEQUIP', slot } } })}
-                  >Un</button>
-                </>
-              ) : (
-                <span style={{ color: '#555', fontSize: 12 }}>Empty</span>
-              )}
-            </div>
-          );
-        })}
-        <div style={{ ...styles.small, marginTop: 12, marginBottom: 4 }}>Inventory</div>
-        {(meta.plugins['equipment']?.equipment?.inventory ?? []).filter((g: any) => !g.equipped).map((g: any) => (
-          <div key={g.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-            <div style={{ flex: 1, textAlign: 'left' }}>
-              <span style={{ color: g.color || '#aaa', fontWeight: 700, fontSize: 12 }}>{g.name}</span>
-              <span style={{ color: '#888', fontSize: 9, marginLeft: 6 }}>{g.slot} | {Object.entries(g.bonuses || {}).map(([k,v]: any) => `+${v} ${k}`).join(' | ')}</span>
-            </div>
-            <button
-              style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #8257e5', backgroundColor: '#8257e530', color: '#8257e5', fontSize: 10, cursor: 'pointer' }}
-              onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'EQUIP', gearId: g.id } } })}
-            >Eqp</button>
-            <button
-              style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #5a2020', backgroundColor: '#3a1a1a', color: '#e94560', fontSize: 10, cursor: 'pointer' }}
-              onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'SCRAP', gearId: g.id } } })}
-            >Scr</button>
-          </div>
-        ))}
-        {(meta.plugins['equipment']?.equipment?.inventory ?? []).filter((g: any) => !g.equipped).length === 0 && (
-          <div style={{ color: '#555', fontSize: 12, marginTop: 8 }}>No hardware. Compromise targets to find parts!</div>
-        )}
-      </div>
-
-      {combo?.count > 2 && (
-        <div style={{ ...styles.card, border: `1px solid ${combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700'}`, textAlign: 'center' }}>
-          <div style={{ fontSize: 24, fontWeight: 900, color: combo.count >= 15 ? '#ff4400' : combo.count >= 8 ? '#ffa500' : '#ffd700' }}>
-            x{combo.multiplier.toFixed(1)} COMBO!
-          </div>
-        </div>
-      )}
-
-      {boss?.bossActive && (
-        <div style={{ ...styles.card, border: '2px solid #ff4400', backgroundColor: '#1a0000' }}>
-          <div style={{ ...styles.label, color: '#ff4400' }}>BOSS ALERT — {boss.bossTimer.toFixed(0)}s remaining</div>
-          <ProgressBar current={boss.bossHp} max={boss.bossMaxHp} color="#ff4400" />
-          <div style={{ ...styles.small }}>{boss.bossHp.toFixed(0)} / {boss.bossMaxHp} HP</div>
-          <button style={{ ...styles.btn, backgroundColor: '#ff4400', marginTop: 8 }}
-            onClick={() => {
-              const tapDmg = engine.getState().pluginState.adaptive?.tapDamage ?? 1;
-              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
-              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: tapDmg } } });
-            }}>
-            Attack Boss ({(engine.getState().pluginState.adaptive?.tapDamage ?? 1)} dmg)
-          </button>
-        </div>
-      )}
-
+  const renderNetwork = () => (
+    <>
       <div style={{ ...styles.card, border: '1px solid #00b4d8' }}>
         <div style={styles.label}>NETWORK NODES</div>
         <div style={{ ...styles.small, marginBottom: 8 }}>{(network?.totalOutput ?? 0).toFixed(1)} CPU/s passive income</div>
@@ -383,93 +326,242 @@ export default function App() {
           </div>
         ))}
       </div>
+    </>
+  );
 
-      <div style={{ ...styles.card, border: '1px solid #ffd700' }}>
-        <div style={styles.label}>SKILL TREE — {skilltree?.points ?? 0} point{(skilltree?.points ?? 0) !== 1 ? 's' : ''}</div>
-        <div style={{ ...styles.small, marginBottom: 8 }}>Earn points by prestiging.</div>
-        {(['HACK', 'INFRA', 'GHOST'] as const).map(branch => (
-          <div key={branch} style={{ width: '100%', marginTop: 10 }}>
-            <div style={{ color: '#ffd700', fontWeight: 700, fontSize: 12, marginBottom: 4 }}>{branch} Branch</div>
-            {(skilltree?.nodes ?? []).filter((n: any) => n.branch === branch).map((n: any) => (
-              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, opacity: n.locked ? 0.35 : 1 }}>
-                <div style={{ flex: 1 }}>
-                  <span style={{ color: n.unlocked ? '#04d361' : '#aaa', fontWeight: 600, fontSize: 13 }}>
-                    {n.unlocked ? '✓' : n.available ? '○' : '🔒'} {n.name}
-                  </span>
-                  <div style={{ color: '#888', fontSize: 11 }}>{n.description}</div>
-                </div>
-                {n.available && (
-                  <button
-                    style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #ffd700', backgroundColor: '#ffd70030', color: '#ffd700', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}
-                    onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: n.id } } })}
-                  >
-                    1pt
-                  </button>
-                )}
-              </div>
-            ))}
+  const renderHardware = () => (
+    <div style={{ ...styles.card, border: '1px solid #5a8fcc' }}>
+      <div style={styles.label}>HARDWARE</div>
+      <div style={{ ...styles.small, marginBottom: 8 }}>Equipped</div>
+      {(['weapon', 'armor', 'ring'] as const).map(slot => {
+        const gearId = meta.plugins['equipment']?.equipment?.equipped?.[slot];
+        const gear = gearId ? (meta.plugins['equipment']?.equipment?.inventory ?? []).find((g: any) => g.id === gearId) : null;
+        return (
+          <div key={slot} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <span style={{ color: '#888', fontSize: 10, fontWeight: 700, minWidth: 60 }}>{slot.toUpperCase()}</span>
+            {gear ? (
+              <>
+                <span style={{ color: gear.color || '#aaa', fontWeight: 700, fontSize: 13 }}>{gear.name}</span>
+                <span style={{ color: '#888', fontSize: 10 }}>{Object.entries(gear.bonuses || {}).map(([k, v]: any) => `+${v} ${k}`).join(' | ')}</span>
+                <button
+                  style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #555', backgroundColor: '#333', color: '#888', fontSize: 10, cursor: 'pointer' }}
+                  onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNEQUIP', slot } } })}
+                >Un</button>
+              </>
+            ) : (
+              <span style={{ color: '#555', fontSize: 12 }}>Empty</span>
+            )}
           </div>
+        );
+      })}
+      <div style={{ ...styles.small, marginTop: 12, marginBottom: 4 }}>Inventory</div>
+      {(meta.plugins['equipment']?.equipment?.inventory ?? []).filter((g: any) => !g.equipped).map((g: any) => (
+        <div key={g.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+          <div style={{ flex: 1, textAlign: 'left' }}>
+            <span style={{ color: g.color || '#aaa', fontWeight: 700, fontSize: 12 }}>{g.name}</span>
+            <span style={{ color: '#888', fontSize: 9, marginLeft: 6 }}>{g.slot} | {Object.entries(g.bonuses || {}).map(([k, v]: any) => `+${v} ${k}`).join(' | ')}</span>
+          </div>
+          <button
+            style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #5a8fcc', backgroundColor: '#5a8fcc30', color: '#5a8fcc', fontSize: 10, cursor: 'pointer' }}
+            onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'EQUIP', gearId: g.id } } })}
+          >Eqp</button>
+          <button
+            style={{ padding: '4px 10px', borderRadius: 4, border: '1px solid #5a2020', backgroundColor: '#3a1a1a', color: '#e94560', fontSize: 10, cursor: 'pointer' }}
+            onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'SCRAP', gearId: g.id } } })}
+          >Scr</button>
+        </div>
+      ))}
+      {(meta.plugins['equipment']?.equipment?.inventory ?? []).filter((g: any) => !g.equipped).length === 0 && (
+        <div style={{ color: '#555', fontSize: 12, marginTop: 8 }}>No hardware. Compromise targets to find parts!</div>
+      )}
+    </div>
+  );
+
+  const renderDev = () => (
+    <>
+      <button
+        style={{ ...styles.btn, backgroundColor: '#333' }}
+        onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'TOGGLE_DEBUG' } } })}
+      >
+        {meta.plugins['debug']?.debug?.visible ? 'Hide Dev Tools' : 'Show Dev Tools'}
+      </button>
+      {meta.plugins['debug']?.debug?.visible && (
+        <div style={{ ...styles.card, border: '1px dashed #4a8fe8' }}>
+          <div style={styles.label}>DEVELOPER TOOLS</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 1000 } } })}>+1K CPU</button>
+            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 100000 } } })}>+100K</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 15 } } })}>Tier 15</button>
+            <button style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }} onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 25 } } })}>Tier 25</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const tabContent: Record<Tab, () => React.ReactNode> = {
+    core: renderCore,
+    combat: renderCombat,
+    progression: renderProgression,
+    network: renderNetwork,
+    hardware: renderHardware,
+    dev: renderDev,
+  };
+
+  return (
+    <div style={styles.container}>
+      <h1 style={styles.title}>AI Overlord</h1>
+
+      <div style={styles.statusBar}>
+        <span style={styles.statusItem}>
+          <span style={{ color: '#04d361' }}>{gold.toFixed(0)}</span>
+          <span style={styles.statusLabel}> CPU</span>
+        </span>
+        <span style={styles.statusSep}>|</span>
+        <span style={styles.statusItem}>
+          <span style={{ color: '#00b4d8' }}>{gps.toFixed(1)}</span>
+          <span style={styles.statusLabel}> /s</span>
+        </span>
+        <span style={styles.statusSep}>|</span>
+        <span style={{ color: '#e94560', fontWeight: 700 }}>Tier {state.level}</span>
+      </div>
+
+      <div ref={msgRef} style={styles.message}>{message}</div>
+
+      {meta.plugins['onboarding']?.onboarding && !meta.plugins['onboarding']?.onboarding?.completed && (
+        <div style={{ ...styles.card, border: '1px solid #ffd86b', backgroundColor: '#2a2618' }}>
+          <div style={styles.label}>
+            Tutorial ({meta.plugins['onboarding']?.onboarding?.step + 1}/{meta.plugins['onboarding']?.onboarding?.total})
+          </div>
+          <div style={{ ...styles.value, fontSize: 18 }}>
+            {meta.plugins['onboarding']?.onboarding?.title}
+          </div>
+          <div style={{ ...styles.small, color: '#ffd86b' }}>
+            {meta.plugins['onboarding']?.onboarding?.tip}
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14, width: '100%' }}>
+            <button
+              style={{ ...styles.btn, flex: 1, backgroundColor: '#ffd86b', color: '#121214' }}
+              onClick={() => {
+                engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'onboarding', action: { type: 'NEXT_STEP' } } });
+                showMessage('Step completed!');
+              }}
+            >
+              Next
+            </button>
+            <button
+              style={{ ...styles.btn, flex: 1, backgroundColor: '#555' }}
+              onClick={() => {
+                engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'onboarding', action: { type: 'SKIP_TUTORIAL' } } });
+                showMessage('Tutorial skipped');
+              }}
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.tabBar}>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            style={{ ...styles.tabBtn, ...(activeTab === tab.id ? styles.tabBtnActive : {}) }}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
         ))}
       </div>
 
-      <button style={styles.btn} onClick={() => {
-        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
-        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
-        engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 1 } });
-      }}>
-        Self-Hack (+1 CPU)
-      </button>
+      <div style={styles.tabContent}>
+        {tabContent[activeTab]()}
+      </div>
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    maxWidth: 480,
+    maxWidth: 520,
     margin: '0 auto',
-    padding: '20px',
+    padding: '20px 16px',
     minHeight: '100vh',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#04d361',
-    marginBottom: 20,
+    marginBottom: 8,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  statusBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1d1d22',
+    borderRadius: 8,
+    padding: '8px 18px',
+    marginBottom: 10,
+    width: '100%',
+    justifyContent: 'center',
+    fontSize: 14,
+  },
+  statusItem: {
+    fontWeight: 700,
+  },
+  statusLabel: {
+    color: '#555',
+    fontWeight: 400,
+  },
+  statusSep: {
+    color: '#333',
   },
   message: {
     color: '#ffd86b',
     fontWeight: 600,
-    marginBottom: 8,
+    marginBottom: 6,
     textAlign: 'center',
     transition: 'opacity 0.3s',
+    minHeight: 20,
   },
-  launcher: {
-    backgroundColor: '#1d1d22',
-    padding: '15px',
-    borderRadius: 12,
+  tabBar: {
+    display: 'flex',
     width: '100%',
-    marginBottom: 20,
-    border: '1px dashed #333',
-    textAlign: 'center',
+    gap: 3,
+    marginBottom: 16,
+    backgroundColor: '#141418',
+    borderRadius: 10,
+    padding: 4,
   },
-  launcherTitle: {
-    color: '#8f8f9d',
-    fontSize: 12,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    marginBottom: 10,
-  },
-  toggleBtn: {
-    padding: '10px',
-    borderRadius: 6,
+  tabBtn: {
+    flex: 1,
+    padding: '8px 2px',
+    borderRadius: 7,
     border: 'none',
+    backgroundColor: 'transparent',
+    color: '#555',
+    fontWeight: 600,
+    fontSize: 11,
     cursor: 'pointer',
-    color: '#fff',
-    fontWeight: 'bold',
+    transition: 'background-color 0.15s, color 0.15s',
+    letterSpacing: 0.3,
+  },
+  tabBtnActive: {
+    backgroundColor: '#1d1d22',
+    color: '#04d361',
+  },
+  tabContent: {
     width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
   },
   card: {
     backgroundColor: '#1d1d22',
@@ -488,6 +580,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     fontWeight: 600,
     marginBottom: 6,
+    letterSpacing: 1,
   },
   value: {
     fontSize: 24,
@@ -501,7 +594,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 4,
   },
   btn: {
-    backgroundColor: '#8257e5',
+    backgroundColor: '#2a6fb0',
     color: '#fff',
     fontWeight: 'bold',
     padding: '15px',
