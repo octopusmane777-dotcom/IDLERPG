@@ -57,7 +57,6 @@ export class AnalyticsPlugin implements EnginePlugin {
       const aState: AnalyticsPluginState = state.pluginState[this.id];
       return {
         pluginState: {
-          ...state.pluginState,
           [this.id]: {
             ...aState,
             enabled: !(aState?.enabled ?? false),
@@ -70,7 +69,6 @@ export class AnalyticsPlugin implements EnginePlugin {
     if (action.type === 'RESET_ANALYTICS') {
       return {
         pluginState: {
-          ...state.pluginState,
           [this.id]: {
             enabled: false,
             events: [],

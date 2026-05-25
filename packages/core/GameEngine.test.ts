@@ -6,6 +6,9 @@ import { EnergyPlugin } from './EnergyPlugin';
 import { AchievementPlugin } from './AchievementPlugin';
 import { AdaptiveModule } from './AdaptiveModule';
 import { DebugPlugin } from './DebugPlugin';
+import { NetworkPlugin } from './NetworkPlugin';
+import { ComboPlugin } from './ComboPlugin';
+import { BossPlugin } from './BossPlugin';
 import { GameDataRepository, GameSave } from './BaseTypes';
 import { StorageAdapter } from './LocalDataRepository';
 
@@ -344,5 +347,228 @@ describe('AchievementPlugin', () => {
     expect(ach.total).toBe(6);
     expect(ach.list.length).toBe(6);
     expect(ach.list[0].id).toBe('first_gold');
+  });
+});
+
+describe('NetworkPlugin', () => {
+  let engine: GameEngine;
+
+  beforeEach(() => {
+    const mockStorage = new MockStorageAdapter();
+    const mockRepository = new MockRepository(mockStorage);
+    engine = new GameEngine({
+      repo: mockRepository,
+      userId: 'test_user',
+      plugins: [new NetworkPlugin()],
+      tickRateMs: 100,
+    });
+    engine.initializePlugins();
+  });
+
+  it('should initialize with zero nodes', () => {
+    const ns = engine.getState().pluginState['network'];
+    expect(ns).toBeDefined();
+    for (const key of Object.keys(ns.nodes)) {
+      expect(ns.nodes[key]).toBe(0);
+    }
+  });
+
+  it('should produce no passive gold when no nodes owned', () => {
+    const before = engine.getState().resources.gold;
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+    expect(engine.getState().resources.gold).toBe(before);
+  });
+
+  it('should deduct gold and increment count on BUY_NODE', () => {
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 100 } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: 'bot_farm' } } });
+    const ns = engine.getState().pluginState['network'];
+    expect(ns.nodes['bot_farm']).toBe(1);
+    expect(engine.getState().resources.gold).toBe(50); // baseCost 50, 0 owned so cost = 50 * 2^0 = 50
+  });
+
+  it('should NOT buy a node when gold is insufficient', () => {
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: 'bot_farm' } } });
+    const ns = engine.getState().pluginState['network'];
+    expect(ns.nodes['bot_farm']).toBe(0);
+  });
+
+  it('should double cost after each purchase', () => {
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 200 } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: 'bot_farm' } } });
+    // After 1 owned, next cost = 50 * 2^1 = 100
+    const meta = engine.getUpgradeMetadata();
+    const node = meta.plugins['network']?.network?.nodes?.find((n: any) => n.id === 'bot_farm');
+    expect(node?.nextCost).toBe(100);
+  });
+
+  it('should generate passive gold via onTick when nodes are owned', () => {
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 100 } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: 'bot_farm' } } });
+    const goldAfterBuy = engine.getState().resources.gold;
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+    // bot_farm produces 0.5/s, so after 1 second: +0.5
+    expect(engine.getState().resources.gold).toBeCloseTo(goldAfterBuy + 0.5);
+  });
+});
+
+describe('ComboPlugin', () => {
+  let engine: GameEngine;
+
+  beforeEach(() => {
+    const mockStorage = new MockStorageAdapter();
+    const mockRepository = new MockRepository(mockStorage);
+    engine = new GameEngine({
+      repo: mockRepository,
+      userId: 'test_user',
+      plugins: [new ComboPlugin(), new AdaptiveModule(), new ProgressionPlugin()],
+      tickRateMs: 100,
+    });
+    engine.initializePlugins();
+  });
+
+  it('should initialize with count 0 and multiplier 1', () => {
+    const cs = engine.getState().pluginState['combo'];
+    expect(cs.count).toBe(0);
+    expect(cs.multiplier).toBe(1);
+  });
+
+  it('should increment count on TAP_DAMAGE', () => {
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+    const cs = engine.getState().pluginState['combo'];
+    expect(cs.count).toBe(1);
+    expect(cs.multiplier).toBeCloseTo(1.1);
+  });
+
+  it('should accumulate multiplier on rapid taps', () => {
+    for (let i = 0; i < 5; i++) {
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+    }
+    const cs = engine.getState().pluginState['combo'];
+    expect(cs.count).toBe(5);
+    expect(cs.multiplier).toBeCloseTo(1.5);
+  });
+
+  it('should cap combo count at 20', () => {
+    for (let i = 0; i < 30; i++) {
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+    }
+    const cs = engine.getState().pluginState['combo'];
+    expect(cs.count).toBe(20);
+    expect(cs.multiplier).toBeCloseTo(3.0);
+  });
+
+  it('should return combo metadata', () => {
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
+    const meta = engine.getUpgradeMetadata();
+    const combo = meta.plugins['combo']?.combo;
+    expect(combo).toBeDefined();
+    expect(combo.count).toBe(1);
+    expect(combo.active).toBe(true);
+  });
+});
+
+describe('BossPlugin', () => {
+  let engine: GameEngine;
+
+  beforeEach(() => {
+    const mockStorage = new MockStorageAdapter();
+    const mockRepository = new MockRepository(mockStorage);
+    engine = new GameEngine({
+      repo: mockRepository,
+      userId: 'test_user',
+      plugins: [new BossPlugin(), new AdaptiveModule(), new ProgressionPlugin()],
+      tickRateMs: 100,
+    });
+    engine.initializePlugins();
+  });
+
+  it('should initialize with no boss active', () => {
+    const bs = engine.getState().pluginState['boss'];
+    expect(bs.bossActive).toBe(false);
+    expect(bs.bossesDefeated).toBe(0);
+    expect(bs.nextBossAt).toBe(10);
+  });
+
+  it('should spawn a boss when level reaches nextBossAt', () => {
+    // Force level to 10
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: undefined } });
+    // Manually set level high enough via SET_LEVEL via DebugPlugin... but DebugPlugin not in this engine
+    // Instead directly force via INCREMENT then tick
+    // Hack: dispatch internal state directly by setting level via the state
+    // Use a workaround: dispatch enough level ups
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
+    for (let i = 0; i < 9; i++) {
+      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
+    }
+    expect(engine.getState().level).toBeGreaterThanOrEqual(10);
+
+    // Tick once to trigger boss spawn check
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+
+    const bs = engine.getState().pluginState['boss'];
+    expect(bs.bossActive).toBe(true);
+    expect(bs.bossHp).toBeGreaterThan(0);
+    expect(bs.bossTimer).toBeCloseTo(30, 0);
+  });
+
+  it('should reduce bossHp on BOSS_DAMAGE', () => {
+    // Spawn a boss manually by setting state via level trick
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
+    for (let i = 0; i < 9; i++) {
+      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
+    }
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+
+    const hpBefore = engine.getState().pluginState['boss'].bossHp;
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: 10 } } });
+    const hpAfter = engine.getState().pluginState['boss'].bossHp;
+    expect(hpAfter).toBe(hpBefore - 10);
+  });
+
+  it('should retreat boss when timer expires', () => {
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
+    for (let i = 0; i < 9; i++) {
+      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
+    }
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+    expect(engine.getState().pluginState['boss'].bossActive).toBe(true);
+
+    // Tick 31 seconds to expire timer
+    const ts2 = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts2 + 31000 } });
+    expect(engine.getState().pluginState['boss'].bossActive).toBe(false);
+  });
+
+  it('should grant gold and increment bossesDefeated on kill', () => {
+    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
+    for (let i = 0; i < 9; i++) {
+      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
+    }
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+
+    const bossMaxHp = engine.getState().pluginState['boss'].bossMaxHp;
+    const goldBefore = engine.getState().resources.gold;
+
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: bossMaxHp + 999 } } });
+
+    const bs = engine.getState().pluginState['boss'];
+    expect(bs.bossActive).toBe(false);
+    expect(bs.bossesDefeated).toBe(1);
+    expect(engine.getState().resources.gold).toBeGreaterThan(goldBefore);
+  });
+
+  it('should return boss metadata via getActionMetadata', () => {
+    const meta = engine.getUpgradeMetadata();
+    const boss = meta.plugins['boss']?.boss;
+    expect(boss).toBeDefined();
+    expect(boss.bossActive).toBe(false);
+    expect(boss.nextBossAt).toBe(10);
   });
 });
