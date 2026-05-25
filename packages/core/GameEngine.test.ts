@@ -489,41 +489,29 @@ describe('BossPlugin', () => {
     const bs = engine.getState().pluginState['boss'];
     expect(bs.bossActive).toBe(false);
     expect(bs.bossesDefeated).toBe(0);
-    expect(bs.nextBossAt).toBe(10);
   });
 
-  it('should spawn a boss when level reaches nextBossAt', () => {
-    // Force level to 10
-    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: undefined } });
-    // Manually set level high enough via SET_LEVEL via DebugPlugin... but DebugPlugin not in this engine
-    // Instead directly force via INCREMENT then tick
-    // Hack: dispatch internal state directly by setting level via the state
-    // Use a workaround: dispatch enough level ups
-    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
-    for (let i = 0; i < 9; i++) {
-      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
-    }
-    expect(engine.getState().level).toBeGreaterThanOrEqual(10);
-
-    // Tick once to trigger boss spawn check
-    const ts = engine.getState().lastTick;
-    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
-
-    const bs = engine.getState().pluginState['boss'];
-    expect(bs.bossActive).toBe(true);
-    expect(bs.bossHp).toBeGreaterThan(0);
-    expect(bs.bossTimer).toBeCloseTo(30, 0);
-  });
+  /** Helper: directly activate a boss with 1000 HP for tests that need it active. */
+  function spawnBossForTest() {
+    engine.loadSavedState({
+      ...engine.getState(),
+      pluginState: {
+        ...engine.getState().pluginState,
+        boss: {
+          ...engine.getState().pluginState['boss'],
+          bossActive: true,
+          bossHp: 1000,
+          bossMaxHp: 1000,
+          bossTimer: 30,
+          bossAttempts: 0,
+          bossHpPersisted: 0,
+        },
+      },
+    });
+  }
 
   it('should reduce bossHp on BOSS_DAMAGE', () => {
-    // Spawn a boss manually by setting state via level trick
-    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
-    for (let i = 0; i < 9; i++) {
-      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
-    }
-    const ts = engine.getState().lastTick;
-    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
-
+    spawnBossForTest();
     const hpBefore = engine.getState().pluginState['boss'].bossHp;
     engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: 10 } } });
     const hpAfter = engine.getState().pluginState['boss'].bossHp;
@@ -531,28 +519,17 @@ describe('BossPlugin', () => {
   });
 
   it('should retreat boss when timer expires', () => {
-    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
-    for (let i = 0; i < 9; i++) {
-      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
-    }
-    const ts = engine.getState().lastTick;
-    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+    spawnBossForTest();
     expect(engine.getState().pluginState['boss'].bossActive).toBe(true);
 
     // Tick 31 seconds to expire timer
-    const ts2 = engine.getState().lastTick;
-    engine.dispatch({ type: 'TICK', payload: { timestamp: ts2 + 31000 } });
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 31000 } });
     expect(engine.getState().pluginState['boss'].bossActive).toBe(false);
   });
 
   it('should grant gold and increment bossesDefeated on kill', () => {
-    engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 9999999 } });
-    for (let i = 0; i < 9; i++) {
-      engine.dispatch({ type: 'LEVEL_UP', payload: { cost: 0 } });
-    }
-    const ts = engine.getState().lastTick;
-    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
-
+    spawnBossForTest();
     const bossMaxHp = engine.getState().pluginState['boss'].bossMaxHp;
     const goldBefore = engine.getState().resources.gold;
 
@@ -564,11 +541,24 @@ describe('BossPlugin', () => {
     expect(engine.getState().resources.gold).toBeGreaterThan(goldBefore);
   });
 
+  it('should persist boss HP and increment attempts on retreat', () => {
+    spawnBossForTest();
+    // Deal partial damage
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: 300 } } });
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 31000 } });
+    const bs = engine.getState().pluginState['boss'];
+    expect(bs.bossActive).toBe(false);
+    expect(bs.bossAttempts).toBe(1);
+    expect(bs.bossHpPersisted).toBeGreaterThan(0);
+    expect(bs.bossHpPersisted).toBeLessThan(1000);
+  });
+
   it('should return boss metadata via getActionMetadata', () => {
     const meta = engine.getUpgradeMetadata();
     const boss = meta.plugins['boss']?.boss;
     expect(boss).toBeDefined();
     expect(boss.bossActive).toBe(false);
-    expect(boss.nextBossAt).toBe(10);
+    expect(typeof boss.bossAttempts).toBe('number');
   });
 });

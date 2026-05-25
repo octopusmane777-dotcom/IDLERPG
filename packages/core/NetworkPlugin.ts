@@ -40,6 +40,9 @@ export class NetworkPlugin implements EnginePlugin {
     const nState: NetworkPluginState = state.pluginState[this.id];
     if (!nState) return;
 
+    // When a boss is active, network DPS is routed to the boss by BossPlugin instead.
+    if (state.pluginState.boss?.bossActive) return;
+
     const ownedNodes = nState.nodes || {};
     let totalDps = 0;
     for (const n of NETWORK_NODES) {

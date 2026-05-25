@@ -277,6 +277,8 @@ export default function App() {
   const tapDamage = a?.tapDamage ?? 1;
   const effectiveTapDmg = meta.plugins['adaptive']?.effectiveTapDmg ?? tapDamage;
   const autoDps = meta.plugins['adaptive']?.autoDps ?? 1;
+  const fightInStage = meta.plugins['adaptive']?.fightInStage ?? 1;
+  const isMiniBoss = meta.plugins['adaptive']?.isMiniBoss ?? false;
   const combo = meta.plugins['combo']?.combo;
   const boss = meta.plugins['boss']?.boss;
   const network = meta.plugins['network']?.network;
@@ -354,9 +356,16 @@ export default function App() {
         <View style={sx.bossCard}>
           <View style={sx.bossHeader}>
             <Text style={sx.bossTitle}>BOSS ENCOUNTER</Text>
-            <Text style={[sx.bossTimer, boss.bossTimer < 10 && { color: C.red }]}>
-              {boss.bossTimer.toFixed(0)}s
-            </Text>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[sx.bossTimer, boss.bossTimer < 10 && { color: C.red }]}>
+                {boss.bossTimer.toFixed(0)}s
+              </Text>
+              <Text style={sx.bossAttempt}>
+                {boss.bossAttempts < 2
+                  ? `Attempt ${boss.bossAttempts + 1}/3`
+                  : 'FINAL ATTEMPT'}
+              </Text>
+            </View>
           </View>
           <HexBar current={boss.bossHp} max={boss.bossMaxHp} color={C.red} height={12} />
           <Text style={sx.bossHpText}>{fmt(boss.bossHp)} / {fmt(boss.bossMaxHp)}</Text>
@@ -382,14 +391,18 @@ export default function App() {
       {/* ── combat arena ── */}
       <Animated.View style={[sx.arena, { backgroundColor: glowColor }]}>
         <View style={sx.targetHeader}>
-          <Text style={[sx.targetIcon, { color: boss?.bossActive ? C.red : threatCol }]}>
-            {boss?.bossActive ? '◈' : stageIcon}
+          <Text style={[sx.targetIcon, { color: boss?.bossActive ? C.red : isMiniBoss ? C.orange : threatCol }]}>
+            {boss?.bossActive ? '◈' : isMiniBoss ? '◆' : stageIcon}
           </Text>
           <View style={{ flex: 1 }}>
-            <Text style={[sx.targetName, { color: boss?.bossActive ? C.red : C.white }]}>
-              {boss?.bossActive ? '[ BOSS ] ELITE TARGET' : stageName}
+            <Text style={[sx.targetName, { color: boss?.bossActive ? C.red : isMiniBoss ? C.orange : C.white }]}>
+              {boss?.bossActive ? '[ BOSS ] ELITE TARGET' : isMiniBoss ? '[ MINI-BOSS ] STAGE GUARDIAN' : stageName}
             </Text>
-            <Text style={sx.targetLv}>LV.{state.level}  ·  {monstersDefeated} DEFEATED</Text>
+            <Text style={sx.targetLv}>
+              {boss?.bossActive
+                ? `LV.${state.level}  ·  ${monstersDefeated} DEFEATED`
+                : `Fight ${fightInStage}/10  ·  LV.${state.level}  ·  ${monstersDefeated} DEFEATED`}
+            </Text>
           </View>
         </View>
 
@@ -1038,6 +1051,7 @@ const sx = StyleSheet.create({
   bossTitle: { fontFamily: FONT_MONO, color: C.red, fontWeight: '700', fontSize: 12, letterSpacing: 2 },
   bossTimer: { fontFamily: FONT_MONO, color: C.orange, fontSize: 14, fontWeight: '900' },
   bossHpText: { fontFamily: FONT_MONO, color: C.redDark, fontSize: 10, textAlign: 'right', marginTop: 3 },
+  bossAttempt: { fontFamily: FONT_MONO, color: C.orange, fontSize: 9, letterSpacing: 1, marginTop: 1 },
 
   // Damage numbers
   dmgOverlay: { position: 'absolute', top: '28%', left: '15%', right: '15%', bottom: '35%', alignItems: 'center', justifyContent: 'center', zIndex: 20 },
