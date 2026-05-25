@@ -385,7 +385,7 @@ describe('NetworkPlugin', () => {
     engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: 'bot_farm' } } });
     const ns = engine.getState().pluginState['network'];
     expect(ns.nodes['bot_farm']).toBe(1);
-    expect(engine.getState().resources.gold).toBe(50); // baseCost 50, 0 owned so cost = 50 * 2^0 = 50
+    expect(engine.getState().resources.gold).toBe(70); // baseCost 30, 0 owned so cost = 30 * 2^0 = 30
   });
 
   it('should NOT buy a node when gold is insufficient', () => {
@@ -397,10 +397,10 @@ describe('NetworkPlugin', () => {
   it('should double cost after each purchase', () => {
     engine.dispatch({ type: 'INCREMENT_RESOURCE', payload: { resource: 'gold', amount: 200 } });
     engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'network', action: { type: 'BUY_NODE', nodeId: 'bot_farm' } } });
-    // After 1 owned, next cost = 50 * 2^1 = 100
+    // After 1 owned, next cost = 30 * 2^1 = 60
     const meta = engine.getUpgradeMetadata();
     const node = meta.plugins['network']?.network?.nodes?.find((n: any) => n.id === 'bot_farm');
-    expect(node?.nextCost).toBe(100);
+    expect(node?.nextCost).toBe(60);
   });
 
   it('should generate passive gold via onTick when nodes are owned', () => {
@@ -409,8 +409,8 @@ describe('NetworkPlugin', () => {
     const goldAfterBuy = engine.getState().resources.gold;
     const ts = engine.getState().lastTick;
     engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
-    // bot_farm produces 0.5/s, so after 1 second: +0.5
-    expect(engine.getState().resources.gold).toBeCloseTo(goldAfterBuy + 0.5);
+    // bot_farm produces 1/s, so after 1 second: +1
+    expect(engine.getState().resources.gold).toBeCloseTo(goldAfterBuy + 1);
   });
 });
 

@@ -14,7 +14,7 @@ export class AdaptiveModule implements EnginePlugin {
     const existing = engine.getPluginState(this.id);
     if (!existing || Object.keys(existing).length === 0) {
       const initialTapDamage = 1;
-      const upgradeCost = Math.round(15 + initialTapDamage * 8);
+      const upgradeCost = Math.round(10 + initialTapDamage * 5);
       engine.setPluginState(this.id, {
         monsterHp: 10,
         monsterMaxHp: 10,
@@ -88,7 +88,7 @@ export class AdaptiveModule implements EnginePlugin {
       newLevel = state.level + 1;
       goldGained = Math.round((10 + 8 * newLevel + goldPerKillBonus) * skill.goldPerKillMult);
       if (newLevel % 25 === 0) goldGained += 50 * newLevel;
-      maxHp = Math.round(10 * Math.pow(1.2, newLevel));
+      maxHp = Math.round(10 * Math.pow(1.12, newLevel));
       hp = maxHp;
     }
 
@@ -118,7 +118,7 @@ export class AdaptiveModule implements EnginePlugin {
     return {
       upgrade: {
         key: 'UPGRADE_TAP',
-        cost: Math.round(15 + tapDamage * 8),
+        cost: Math.round(10 + tapDamage * 5),
         nextValue: tapDamage + 1,
       },
       effectiveTapDmg,
@@ -150,7 +150,7 @@ export class AdaptiveModule implements EnginePlugin {
       if (hp <= 0) {
         const newLevel = state.level + 1;
         defeated += 1;
-        maxHp = Math.round(10 * Math.pow(1.2, newLevel));
+        maxHp = Math.round(10 * Math.pow(1.12, newLevel));
         goldGained = Math.round((10 + 8 * newLevel + gear.goldPerKill) * skill.goldPerKillMult);
         if (newLevel % 25 === 0) goldGained += 50 * newLevel;
         return {

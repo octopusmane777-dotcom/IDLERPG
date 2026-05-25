@@ -76,7 +76,7 @@ export class EnergyPlugin implements EnginePlugin {
     // Read skill bonuses
     const skillBonuses = _getSkillEnergyBonus(state);
     const maxEnergy = 50 + (state.pluginState?.skilltree ? skillBonuses.maxEnergyBonus : 0);
-    const energyGain = deltaSec / 3 + gearRegenBoost * deltaSec + skillBonuses.regenBonus * deltaSec;
+    const energyGain = deltaSec / 5 + gearRegenBoost * deltaSec + skillBonuses.regenBonus * deltaSec;
     const energy = Math.min(maxEnergy, (eState.energy || 0) + energyGain);
 
     const cooldowns: Record<string, number> = { ...(eState.cooldowns || {}) };
@@ -219,7 +219,7 @@ export class EnergyPlugin implements EnginePlugin {
     if (hp <= 0) {
       const newLevel = state.level + 1;
       defeated += 1;
-      maxHp = Math.round(10 * Math.pow(1.2, newLevel));
+      maxHp = Math.round(10 * Math.pow(1.12, newLevel));
       goldGained = 10 + 8 * newLevel;
       if (newLevel % 25 === 0) goldGained += 50 * newLevel;
       return {

@@ -13,11 +13,11 @@ interface NodeDef {
 }
 
 export const NETWORK_NODES: NodeDef[] = [
-  { id: 'bot_farm',      name: 'Bot Farm',       description: '+0.5 DPS each',   baseRate: 0.5,   baseCost: 50 },
-  { id: 'scraper',       name: 'Data Scraper',    description: '+3 DPS each',     baseRate: 3,     baseCost: 500 },
-  { id: 'proxy_cluster', name: 'Proxy Cluster',   description: '+15 DPS each',    baseRate: 15,    baseCost: 3000 },
-  { id: 'ai_server',     name: 'AI Server',       description: '+75 DPS each',    baseRate: 75,    baseCost: 20000 },
-  { id: 'quantum_core',  name: 'Quantum Core',    description: '+400 DPS each',   baseRate: 400,   baseCost: 150000 },
+  { id: 'bot_farm',      name: 'Bot Farm',       description: '+1 DPS each',     baseRate: 1,     baseCost: 30 },
+  { id: 'scraper',       name: 'Data Scraper',    description: '+5 DPS each',     baseRate: 5,     baseCost: 300 },
+  { id: 'proxy_cluster', name: 'Proxy Cluster',   description: '+20 DPS each',    baseRate: 20,    baseCost: 2000 },
+  { id: 'ai_server',     name: 'AI Server',       description: '+100 DPS each',   baseRate: 100,   baseCost: 12000 },
+  { id: 'quantum_core',  name: 'Quantum Core',    description: '+600 DPS each',   baseRate: 600,   baseCost: 80000 },
 ];
 
 function nodeCost(def: NodeDef, owned: number): number {
@@ -66,7 +66,7 @@ export class NetworkPlugin implements EnginePlugin {
     if (hp <= 0 && (adaptiveState.monsterHp ?? 0) > 0) {
       newDefeated += 1;
       newLevel = state.level + 1;
-      newMaxHp = Math.round(10 * Math.pow(1.2, newLevel));
+      newMaxHp = Math.round(10 * Math.pow(1.12, newLevel));
       goldGained = 10 + 8 * newLevel;
       if (newLevel % 25 === 0) goldGained += 50 * newLevel;
     }
