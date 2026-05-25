@@ -25,7 +25,7 @@ class MemStorage {
 }
 
 const storage = new MemStorage();
-const repo = new LocalDataRepository(storage as any, 'balance_sim');
+const repo = new LocalDataRepository(storage as any);
 
 const engine = new GameEngine({
   repo,
