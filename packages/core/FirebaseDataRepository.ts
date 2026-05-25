@@ -4,26 +4,22 @@ import { GameDataRepository, GameSave } from './BaseTypes';
  * FirebaseDataRepository - Cloud persistence adapter using Firebase Firestore.
  *
  * Stores each player's save as a document in the `saves` collection keyed by userId.
- * Integrates with Firebase Security Rules to restrict access per-user.
+ * Supports Google Sign-In — only authenticated users get cloud saves.
  *
  * Usage:
  *   import { initializeApp } from 'firebase/app';
  *   import { getFirestore } from 'firebase/firestore';
+ *   import { getAuth } from 'firebase/auth';
  *
  *   const app = initializeApp({ apiKey: '...', projectId: '...', ... });
  *   const db = getFirestore(app);
- *   const firebaseRepo = new FirebaseDataRepository(db);
- *
- * Combine with LocalDataRepository via CompositeRepository for offline-first:
- *   const repo = new CompositeRepository(localRepo, firebaseRepo);
+ *   const auth = getAuth(app);
+ *   const firebaseRepo = new FirebaseDataRepository({ firestore: db, auth });
  */
 
 export interface FirebaseDataRepositoryConfig {
-  /** An initialized Firestore instance (from `getFirestore(app)`) */
   firestore: any;
-  /** Optional collection name override (default: 'saves') */
   collectionName?: string;
-  /** Optional Firebase Auth instance for anonymous sign-in */
   auth?: any;
 }
 
@@ -31,6 +27,7 @@ export class FirebaseDataRepository implements GameDataRepository {
   private firestore: any;
   private collectionName: string;
   private auth: any;
+  private authStateListeners: Array<(user: any) => void> = [];
 
   constructor(config: FirebaseDataRepositoryConfig) {
     this.firestore = config.firestore;
@@ -38,131 +35,112 @@ export class FirebaseDataRepository implements GameDataRepository {
     this.auth = config.auth || null;
   }
 
-  /** Ensures user is signed in anonymously. Returns the uid, or null if auth unavailable. */
-  async ensureAnonymousAuth(): Promise<string | null> {
+  get currentUser(): any {
+    return this.auth?.currentUser ?? null;
+  }
+
+  /** Sign in with Google (web: popup, returns user or null) */
+  async signInWithGoogle(): Promise<any> {
     if (!this.auth) return null;
     try {
-      const { signInAnonymously, onAuthStateChanged } = await this.resolveAuth();
-      if (!signInAnonymously) return null;
-
-      // If already signed in, return current uid
-      const currentUser = this.auth.currentUser;
-      if (currentUser?.uid) return currentUser.uid;
-
-      // Wait for sign-in to complete
-      const cred = await signInAnonymously(this.auth);
-      console.log(`[FirebaseDataRepository] Anonymous auth: ${cred.user?.uid}`);
-      return cred.user?.uid || null;
+      const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(this.auth, provider);
+      return result.user;
     } catch (err) {
-      console.error('[FirebaseDataRepository] Anonymous auth failed:', err);
+      console.error('[FirebaseDataRepository] Google sign-in failed:', err);
       return null;
     }
   }
 
-  async saveGame(save: GameSave): Promise<void> {
+  /** Sign in with a Google ID token (for mobile native Google Sign-In) */
+  async signInWithGoogleCredential(idToken: string): Promise<any> {
+    if (!this.auth) return null;
     try {
-      const userId = (this.auth?.currentUser?.uid) || save.userId;
-      const { doc, setDoc } = await this.resolveFirestoreWrite();
+      const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+      const credential = GoogleAuthProvider.credential(idToken);
+      const result = await signInWithCredential(this.auth, credential);
+      return result.user;
+    } catch (err) {
+      console.error('[FirebaseDataRepository] Google credential sign-in failed:', err);
+      return null;
+    }
+  }
 
+  async signOut(): Promise<void> {
+    if (!this.auth) return;
+    try {
+      const { signOut } = await import('firebase/auth');
+      await signOut(this.auth);
+    } catch (err) {
+      console.error('[FirebaseDataRepository] Sign out failed:', err);
+    }
+  }
+
+  /** Listen to auth state changes. Returns an unsubscribe function. */
+  onAuthStateChange(callback: (user: any) => void): () => void {
+    if (!this.auth) return () => {};
+    let unsubscribe: (() => void) | null = null;
+    import('firebase/auth').then(({ onAuthStateChanged }) => {
+      unsubscribe = onAuthStateChanged(this.auth, callback);
+    }).catch(() => {});
+    return () => { if (unsubscribe) unsubscribe(); };
+  }
+
+  async saveGame(save: GameSave): Promise<void> {
+    if (!this.auth?.currentUser) return;
+    try {
+      const userId = this.auth.currentUser.uid;
+      const { doc, setDoc } = await this.resolveFirestoreWrite();
       const docRef = doc(this.firestore, this.collectionName, userId);
       const docData: Record<string, any> = {
         userId,
         state: save.state,
         updatedAt: save.updatedAt,
       };
-      if (save.saveVersion !== undefined) {
-        docData.saveVersion = save.saveVersion;
-      }
+      if (save.saveVersion !== undefined) docData.saveVersion = save.saveVersion;
       await setDoc(docRef, docData, { merge: true });
-
       console.log(`[FirebaseDataRepository] Game saved for user: ${userId}`);
     } catch (err) {
       console.error('[FirebaseDataRepository] saveGame failed:', err);
-      // Don't throw — allow local save to succeed even if cloud fails
     }
   }
 
   async loadGame(userId: string): Promise<GameSave | null> {
+    if (!this.auth?.currentUser) return null;
     try {
-      const uid = (this.auth?.currentUser?.uid) || userId;
+      const uid = this.auth.currentUser.uid;
       const { doc, getDoc } = await this.resolveFirestoreRead();
-
       const docRef = doc(this.firestore, this.collectionName, uid);
       const snapshot = await getDoc(docRef);
-
-      if (!snapshot.exists()) {
-        console.log(`[FirebaseDataRepository] No save found for user: ${uid}`);
-        return null;
-      }
-
+      if (!snapshot.exists()) return null;
       const data = snapshot.data() as Record<string, any>;
-      const save = {
+      console.log(`[FirebaseDataRepository] Progress loaded for user: ${uid}`);
+      return {
         userId: data.userId as string,
         state: data.state,
         updatedAt: data.updatedAt as number,
         saveVersion: typeof data.saveVersion === 'number' ? data.saveVersion : undefined,
       } as GameSave;
-
-      console.log(`[FirebaseDataRepository] Progress loaded for user: ${uid}`);
-      return save;
     } catch (err) {
       console.error('[FirebaseDataRepository] loadGame failed:', err);
       return null;
     }
   }
 
-  /**
-   * Dynamically imports Firebase Auth for anonymous sign-in. Gracefully degrades if not installed.
-   */
-  private async resolveAuth() {
+  private async resolveFirestoreWrite(): Promise<{ doc: any; setDoc: any }> {
     try {
-      // @ts-ignore
-      const authMod = await import('firebase/auth').then(m => m).catch(() => null);
-      if (authMod?.signInAnonymously) {
-        return { signInAnonymously: authMod.signInAnonymously, onAuthStateChanged: authMod.onAuthStateChanged };
-      }
-    } catch { /* firebase/auth not installed */ }
-    console.warn('[FirebaseDataRepository] firebase/auth not available — anonymous auth disabled');
-    return { signInAnonymously: null, onAuthStateChanged: null };
+      const m = await import('firebase/firestore').catch(() => null);
+      if (m?.doc && m?.setDoc) return { doc: m.doc, setDoc: m.setDoc };
+    } catch { /* no-op */ }
+    return { doc: () => null as any, setDoc: async () => {} };
   }
 
-  /**
-   * Dynamically imports Firestore write helpers to avoid bundling when not used.
-   * Uses the v9+ modular SDK: `doc`, `setDoc` from `firebase/firestore`.
-   */
-  // @ts-ignore: firebase/firestore is optional — gracefully degrades if not installed
-  private async resolveFirestoreWrite() {
+  private async resolveFirestoreRead(): Promise<{ doc: any; getDoc: any }> {
     try {
-      // @ts-ignore
-      const firestoreMod = await import('firebase/firestore').then(m => m).catch(() => null);
-      if (firestoreMod?.doc && firestoreMod?.setDoc) {
-        return { doc: firestoreMod.doc, setDoc: firestoreMod.setDoc };
-      }
-    } catch {
-      // firebase/firestore not installed — no-op
-    }
-    console.warn('[FirebaseDataRepository] firebase/firestore not available — cloud save disabled');
-    return {
-      doc: () => ({}),
-      setDoc: async () => {},
-    };
-  }
-
-  // @ts-ignore: firebase/firestore is optional — gracefully degrades if not installed
-  private async resolveFirestoreRead() {
-    try {
-      // @ts-ignore
-      const firestoreMod = await import('firebase/firestore').then(m => m).catch(() => null);
-      if (firestoreMod?.doc && firestoreMod?.getDoc) {
-        return { doc: firestoreMod.doc, getDoc: firestoreMod.getDoc };
-      }
-    } catch {
-      // firebase/firestore not installed — no-op
-    }
-    console.warn('[FirebaseDataRepository] firebase/firestore not available — cloud load disabled');
-    return {
-      doc: () => ({}),
-      getDoc: async () => ({ exists: () => false, data: () => ({} as any) }),
-    };
+      const m = await import('firebase/firestore').catch(() => null);
+      if (m?.doc && m?.getDoc) return { doc: m.doc, getDoc: m.getDoc };
+    } catch { /* no-op */ }
+    return { doc: () => null as any, getDoc: async () => ({ exists: () => false, data: () => ({} as any) }) };
   }
 }

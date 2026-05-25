@@ -1,4 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { GameEngine } from '@idlerpg/core/GameEngine';
 import { AdaptiveModule } from '@idlerpg/core/AdaptiveModule';
 import { ProgressionPlugin } from '@idlerpg/core/ProgressionPlugin';
@@ -19,8 +22,22 @@ import { EventPlugin } from '@idlerpg/core/EventPlugin';
 import { LeaderboardPlugin } from '@idlerpg/core/LeaderboardPlugin';
 import { ReturnPlugin } from '@idlerpg/core/ReturnPlugin';
 import { LocalDataRepository } from '@idlerpg/core/LocalDataRepository';
+import { FirebaseDataRepository } from '@idlerpg/core/FirebaseDataRepository';
 import { CompositeRepository } from '@idlerpg/core/CompositeRepository';
 import { ProgressBar, UpgradeCard } from '@idlerpg/ui';
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID as string,
+};
+
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const firestore = getFirestore(firebaseApp);
+const firebaseAuth = getAuth(firebaseApp);
 
 const storageAdapter = {
   getItem: async (key: string) => {
@@ -35,7 +52,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 const localRepo = new LocalDataRepository(storageAdapter);
-const repository = new CompositeRepository([localRepo]);
+const firebaseRepo = new FirebaseDataRepository({ firestore, auth: firebaseAuth });
+const repository = new CompositeRepository([localRepo, firebaseRepo]);
 
 const engine = new GameEngine({
   plugins: [
@@ -95,6 +113,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('core');
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(new Set(['core']));
   const [message, setMessage] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(false);
   const msgRef = useRef<HTMLDivElement>(null);
 
   const showMessage = (msg: string, ms = 2000) => {
@@ -117,6 +137,13 @@ export default function App() {
   }, [state.level]);
 
   useEffect(() => {
+    const unsubAuth = firebaseRepo.onAuthStateChange((user: any) => {
+      setAuthUser(user ?? null);
+    });
+    return () => unsubAuth();
+  }, []);
+
+  useEffect(() => {
     const init = async () => {
       const saved = await repository.loadGame('player');
       if (saved?.state) {
@@ -130,6 +157,28 @@ export default function App() {
     init();
     return engine.subscribe(setState);
   }, []);
+
+  const handleGoogleSignIn = async () => {
+    setAuthLoading(true);
+    const user = await firebaseRepo.signInWithGoogle();
+    if (user) {
+      const cloudSave = await firebaseRepo.loadGame(user.uid);
+      if (cloudSave?.state) {
+        engine.stop?.();
+        engine.loadSavedState(cloudSave.state);
+        engine.start();
+        showMessage('Cloud save loaded!', 3000);
+      } else {
+        showMessage(`Signed in as ${user.displayName ?? user.email}`, 2500);
+      }
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    await firebaseRepo.signOut();
+    showMessage('Signed out — progress saved locally', 2000);
+  };
 
   const handleTabClick = (tab: Tab) => {
     setActiveTab(tab);
@@ -201,7 +250,7 @@ export default function App() {
         <div style={styles.value}>Integrity: {combatState.monsterHp.toFixed(1)} / {combatState.monsterMaxHp}</div>
         <ProgressBar current={combatState.monsterHp} max={combatState.monsterMaxHp} color="#e94560" />
         <div style={styles.small}>Compromised: {combatState.monstersDefeated}</div>
-        <div style={styles.small}>Hack Speed: {combatState.playerDps.toFixed(1)}</div>
+        <div style={styles.small}>Hack Speed: {(meta.plugins['adaptive']?.autoDps ?? 0).toFixed(1)}</div>
         <button
           style={{ ...styles.btn, ...(!(gold >= (meta.plugins['adaptive']?.upgrade?.cost ?? 0)) ? styles.btnDisabled : {}) }}
           onClick={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'adaptive', action: { type: 'UPGRADE_DPS', payload: { cost: meta.plugins['adaptive']?.upgrade?.cost } } } })}
@@ -555,6 +604,34 @@ export default function App() {
     <div style={styles.container}>
       <h1 style={styles.title}>AI Overlord</h1>
 
+      <div style={styles.authBar}>
+        {authUser ? (
+          <>
+            <div style={styles.authUser}>
+              {authUser.photoURL && (
+                <img src={authUser.photoURL} alt="" style={styles.authAvatar} />
+              )}
+              <span style={{ color: '#04d361', fontWeight: 600, fontSize: 12 }}>
+                {authUser.displayName ?? authUser.email}
+              </span>
+              <span style={{ color: '#555', fontSize: 11 }}>· Cloud Save</span>
+            </div>
+            <button style={styles.authBtn} onClick={handleSignOut}>Sign Out</button>
+          </>
+        ) : (
+          <>
+            <span style={{ color: '#888', fontSize: 12 }}>Sign in to save progress to the cloud</span>
+            <button
+              style={{ ...styles.authBtn, backgroundColor: '#2a6fb0', color: '#fff', opacity: authLoading ? 0.6 : 1 }}
+              onClick={handleGoogleSignIn}
+              disabled={authLoading}
+            >
+              {authLoading ? 'Signing in...' : 'Sign in with Google'}
+            </button>
+          </>
+        )}
+      </div>
+
       <div style={styles.statusBar}>
         <span style={styles.statusItem}>
           <span style={{ color: '#04d361' }}>{gold.toFixed(0)}</span>
@@ -699,6 +776,41 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+  },
+  authBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    backgroundColor: '#141418',
+    borderRadius: 8,
+    padding: '8px 12px',
+    marginBottom: 10,
+    gap: 10,
+  },
+  authUser: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  authAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  authBtn: {
+    padding: '5px 12px',
+    borderRadius: 6,
+    border: '1px solid #333',
+    backgroundColor: '#1d1d22',
+    color: '#888',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
   },
   title: {
     fontSize: 28,

@@ -67,6 +67,33 @@ const storageAdapter = {
   },
 };
 
+const FIREBASE_CONFIG = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? 'AIzaSyBt1pzhfxNLC50ovmCEkDfVI8h5DUnYWzo',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'idlerpg-c6965.firebaseapp.com',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'idlerpg-c6965',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'idlerpg-c6965.firebasestorage.app',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '411288748979',
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '1:411288748979:web:adccfed810faa93c1041c6',
+};
+
+let _firebaseApp: any = null;
+let _firebaseAuth: any = null;
+let _firestore: any = null;
+
+async function initFirebase() {
+  if (_firebaseApp) return;
+  try {
+    const { initializeApp, getApps } = await import('firebase/app');
+    const { getFirestore } = await import('firebase/firestore');
+    const { getAuth } = await import('firebase/auth');
+    _firebaseApp = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApps()[0];
+    _firestore = getFirestore(_firebaseApp);
+    _firebaseAuth = getAuth(_firebaseApp);
+  } catch (e) {
+    console.warn('[Firebase] Init failed:', e);
+  }
+}
+
 const localRepo = new LocalDataRepository(storageAdapter);
 const firebaseRepo = new FirebaseDataRepository({ firestore: null });
 const repository = new CompositeRepository([localRepo, firebaseRepo]);
@@ -153,6 +180,8 @@ export default function App() {
   const [dmgNums, setDmgNums] = useState<DamageNum[]>([]);
   const [tab, setTab] = useState<TabId>('combat');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(false);
   const tapScale = useRef(new Animated.Value(1)).current;
   const attackGlow = useRef(new Animated.Value(0)).current;
   const prevState = useRef(state);
@@ -172,15 +201,76 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
+      await initFirebase();
+      if (_firestore && _firebaseAuth) {
+        (firebaseRepo as any).firestore = _firestore;
+        (firebaseRepo as any).auth = _firebaseAuth;
+      }
+      const unsubAuth = firebaseRepo.onAuthStateChange((user: any) => {
+        setAuthUser(user ?? null);
+      });
       const saved = await repository.loadGame('player');
       if (saved?.state) engine.loadSavedState(saved.state);
       else engine.initializePlugins();
       setState(engine.getState());
       engine.start();
+      return unsubAuth;
     };
-    init();
-    return engine.subscribe(setState);
+    let cleanup: (() => void) | undefined;
+    init().then(fn => { cleanup = fn; });
+    const unsub = engine.subscribe(setState);
+    return () => { unsub(); cleanup?.(); };
   }, []);
+
+  const handleGoogleSignIn = async () => {
+    setAuthLoading(true);
+    try {
+      const GoogleSignin = await import('@react-native-google-signin/google-signin').then(m => m.GoogleSignin).catch(() => null);
+      if (GoogleSignin) {
+        GoogleSignin.configure({ webClientId: '411288748979-web.apps.googleusercontent.com' });
+        await GoogleSignin.hasPlayServices();
+        const userInfo = await GoogleSignin.signIn();
+        const idToken = userInfo.data?.idToken ?? (userInfo as any).idToken;
+        if (idToken) {
+          const user = await firebaseRepo.signInWithGoogleCredential(idToken);
+          if (user) {
+            const cloudSave = await firebaseRepo.loadGame(user.uid);
+            if (cloudSave?.state) {
+              engine.loadSavedState(cloudSave.state);
+              engine.start();
+              showMessage('Cloud save loaded!');
+            } else {
+              showMessage(`Signed in as ${user.displayName ?? user.email}`);
+            }
+          }
+        }
+      } else {
+        const user = await firebaseRepo.signInWithGoogle();
+        if (user) {
+          const cloudSave = await firebaseRepo.loadGame(user.uid);
+          if (cloudSave?.state) {
+            engine.loadSavedState(cloudSave.state);
+            engine.start();
+            showMessage('Cloud save loaded!');
+          } else {
+            showMessage(`Signed in as ${user.displayName ?? user.email}`);
+          }
+        }
+      }
+    } catch (e: any) {
+      showMessage('Sign-in failed');
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    await firebaseRepo.signOut();
+    try {
+      const GoogleSignin = await import('@react-native-google-signin/google-signin').then(m => m.GoogleSignin).catch(() => null);
+      if (GoogleSignin) await GoogleSignin.signOut();
+    } catch {}
+    showMessage('Signed out — progress saved locally');
+  };
 
   useEffect(() => {
     const prev = prevState.current;
@@ -918,6 +1008,32 @@ export default function App() {
         <Pressable style={sx.modalOverlay} onPress={() => setSettingsOpen(false)}>
           <Pressable style={sx.modalCard}>
             <Text style={sx.modalTitle}>SYSTEM</Text>
+
+            {/* Cloud save / auth */}
+            {authUser ? (
+              <View style={sx.authRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={sx.authName}>{authUser.displayName ?? authUser.email}</Text>
+                  <Text style={sx.authSub}>Cloud Save Active</Text>
+                </View>
+                <Pressable style={[sx.modalBtn, { borderColor: C.red, marginTop: 0, flex: 0, paddingHorizontal: 14 }]} onPress={() => { handleSignOut(); setSettingsOpen(false); }}>
+                  <Text style={[sx.modalBtnText, { color: C.red }]}>SIGN OUT</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                style={[sx.modalBtn, { borderColor: C.cyan, opacity: authLoading ? 0.6 : 1 }]}
+                onPress={() => { handleGoogleSignIn(); setSettingsOpen(false); }}
+                disabled={authLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in with Google"
+              >
+                <Text style={[sx.modalBtnText, { color: C.cyan }]}>
+                  {authLoading ? 'SIGNING IN...' : 'SIGN IN WITH GOOGLE'}
+                </Text>
+              </Pressable>
+            )}
+
             {[
               { label: 'MANUAL SAVE', color: C.cyan, action: async () => { await engine.flushSave(); showMessage('Game saved!'); setSettingsOpen(false); } },
               { label: 'EXPORT SAVE', color: C.green, action: async () => { const json = JSON.stringify({ state: engine.getState(), exportedAt: Date.now() }); try { if ((navigator as any)?.clipboard?.writeText) { await (navigator as any).clipboard.writeText(json); showMessage('Copied to clipboard'); } } catch { Alert.alert('Export', json.slice(0, 500) + '...'); } setSettingsOpen(false); } },
@@ -1231,6 +1347,11 @@ const sx = StyleSheet.create({
   modalBtnText: { fontFamily: FONT_MONO, fontWeight: '700', fontSize: 13, letterSpacing: 2 },
   modalClose: { padding: 16, alignItems: 'center', marginTop: 4 },
   modalCloseText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 12, letterSpacing: 2 },
+
+  // Auth row in settings
+  authRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.green, padding: 12, marginBottom: 8, gap: 8 },
+  authName: { fontFamily: FONT_MONO, color: C.green, fontSize: 11, fontWeight: '700' },
+  authSub: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, marginTop: 2, letterSpacing: 1 },
 
   // List rows (achievements)
   listRow: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: C.surface2, borderRadius: 6, borderWidth: 1, borderColor: C.border, padding: 10, marginBottom: 4, gap: 8 },

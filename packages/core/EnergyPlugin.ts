@@ -219,19 +219,36 @@ export class EnergyPlugin implements EnginePlugin {
     if (hp <= 0) {
       const newLevel = state.level + 1;
       defeated += 1;
-      maxHp = Math.round(10 * Math.pow(1.12, newLevel));
-      goldGained = 10 + 8 * newLevel;
-      if (newLevel % 25 === 0) goldGained += 50 * newLevel;
+      const wasMiniBoss = (adaptiveState as any)?.isMiniBoss ?? false;
+      const miniBossGoldMult = wasMiniBoss ? 3 : 1;
+      const gear2 = state.pluginState?.equipment;
+      let goldPerKillBonus = 0;
+      if (gear2) {
+        const slots2: string[] = [...(gear2.ramSlots || []), ...(gear2.gpuSlots || [])];
+        for (const itemId of slots2) {
+          if (!itemId) continue;
+          const item2 = (gear2.inventory || []).find((g: any) => g.id === itemId);
+          if (item2?.bonuses?.goldPerKill) goldPerKillBonus += item2.bonuses.goldPerKill;
+        }
+      }
+      const newFightInStage = (newLevel % 10) === 0 ? 10 : newLevel % 10;
+      const newIsMiniBoss = newFightInStage === 10;
+      const baseMaxHp = Math.round(10 * Math.pow(1.12, newLevel));
+      const newMaxHp = newIsMiniBoss ? Math.round(baseMaxHp * 3) : baseMaxHp;
+      const baseGold = Math.round((10 + 8 * newLevel + goldPerKillBonus) * miniBossGoldMult);
+      const finalGold = newLevel % 25 === 0 ? baseGold + 50 * newLevel : baseGold;
       return {
         level: newLevel,
-        resources: { ...state.resources, gold: (state.resources.gold || 0) + goldGained },
+        resources: { ...state.resources, gold: (state.resources.gold || 0) + finalGold },
         pluginState: {
           [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: eState.maxEnergy || 50, cooldowns: newCooldowns, spellLevels },
           adaptive: {
             ...adaptiveState,
-            monsterHp: maxHp,
-            monsterMaxHp: maxHp,
+            monsterHp: newMaxHp,
+            monsterMaxHp: newMaxHp,
             monstersDefeated: defeated,
+            fightInStage: newFightInStage,
+            isMiniBoss: newIsMiniBoss,
           },
         },
       };
