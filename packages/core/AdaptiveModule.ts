@@ -25,21 +25,43 @@ export class AdaptiveModule implements EnginePlugin {
     }
   }
 
-  /** Helper to read equipment bonuses from plugin state */
-  private getGearBonuses(state: GameState): { tapDamage: number; energyRegen: number; spellMultiplier: number; goldPerKill: number } {
+  /** Helper to read equipment bonuses from installed hardware */
+  private getGearBonuses(state: GameState): { tapDamage: number; autoDps: number; goldPerKill: number } {
     const eq = state.pluginState?.equipment;
-    if (!eq || !eq.equipped) return { tapDamage: 0, energyRegen: 0, spellMultiplier: 0, goldPerKill: 0 };
-    const gearBonuses = { tapDamage: 0, energyRegen: 0, spellMultiplier: 0, goldPerKill: 0 };
-    for (const slot of ['weapon', 'armor', 'ring'] as const) {
-      const gearId = eq.equipped[slot];
-      if (!gearId) continue;
-      const gear = (eq.inventory || []).find((g: any) => g.id === gearId);
-      if (!gear || !gear.bonuses) continue;
-      for (const key of Object.keys(gearBonuses) as (keyof typeof gearBonuses)[]) {
-        if (gear.bonuses[key]) gearBonuses[key] = (gearBonuses[key] || 0) + gear.bonuses[key];
-      }
+    if (!eq) return { tapDamage: 0, autoDps: 0, goldPerKill: 0 };
+    const totals = { tapDamage: 0, autoDps: 0, goldPerKill: 0 };
+    const slots: string[] = [...(eq.ramSlots || []), ...(eq.gpuSlots || [])];
+    for (const itemId of slots) {
+      if (!itemId) continue;
+      const item = (eq.inventory || []).find((g: any) => g.id === itemId);
+      if (!item?.bonuses) continue;
+      if (item.bonuses.tapDamage)  totals.tapDamage  += item.bonuses.tapDamage;
+      if (item.bonuses.autoDps)    totals.autoDps     += item.bonuses.autoDps;
+      if (item.bonuses.goldPerKill) totals.goldPerKill += item.bonuses.goldPerKill;
     }
-    return gearBonuses;
+    return totals;
+  }
+
+  /** Read skill bonuses inline to avoid circular import */
+  private getSkillBonuses(state: GameState): { tapDmgMult: number; autoDpsMult: number; autoDpsBonus: number; goldPerKillMult: number; critChance: number; surgeProtocol: boolean } {
+    const st = state.pluginState?.skilltree;
+    if (!st) return { tapDmgMult: 1, autoDpsMult: 1, autoDpsBonus: 0, goldPerKillMult: 1, critChance: 0, surgeProtocol: false };
+    const u = new Set<string>(st.unlocked ?? []);
+    const tapMult = 1
+      + (u.has('s1') ? 0.15 : 0) + (u.has('s2') ? 0.20 : 0) + (u.has('s4') ? 0.25 : 0)
+      + (u.has('p1') ? 0.05 : 0) + (u.has('p3') ? 0.10 : 0) + (u.has('a2') ? 0.05 : 0);
+    const autoDpsMult = 1 + (u.has('p1') ? 0.30 : 0) + (u.has('a3') ? 0.05 : 0);
+    const autoDpsBonus = u.has('p2') ? 2 : 0;
+    const goldMult = 1
+      + (u.has('s5') ? 0.20 : 0) + (u.has('a4') ? 0.10 : 0) + (u.has('p6') ? 0.05 : 0);
+    return {
+      tapDmgMult: tapMult,
+      autoDpsMult,
+      autoDpsBonus,
+      goldPerKillMult: goldMult,
+      critChance: u.has('s3') ? 0.10 : 0,
+      surgeProtocol: u.has('s6'),
+    };
   }
 
   onTick(state: GameState, deltaSec: number) {
@@ -47,7 +69,12 @@ export class AdaptiveModule implements EnginePlugin {
     if (!adaptiveState) return;
 
     const gear = this.getGearBonuses(state);
-    const dps = 1 + gear.tapDamage; // gear adds to auto dps
+    const skill = this.getSkillBonuses(state);
+    const baseDps = (1 + gear.autoDps + skill.autoDpsBonus) * skill.autoDpsMult;
+    // Surge protocol: tap damage also contributes to auto DPS
+    const tapContrib = skill.surgeProtocol ? (adaptiveState.tapDamage || 1) * skill.tapDmgMult * 0.25 : 0;
+    const dps = baseDps + tapContrib;
+
     const goldPerKillBonus = gear.goldPerKill;
     const maxKills = Math.min(deltaSec, 1);
     let hp = adaptiveState.monsterHp - (dps * deltaSec);
@@ -59,11 +86,8 @@ export class AdaptiveModule implements EnginePlugin {
     if (hp <= 0 && maxKills > 0) {
       defeated += 1;
       newLevel = state.level + 1;
-      goldGained = 10 + 8 * newLevel + goldPerKillBonus;
-      // Every 25 stages grant a lump bonus equal to 50 * stage
-      if (newLevel % 25 === 0) {
-        goldGained += 50 * newLevel;
-      }
+      goldGained = Math.round((10 + 8 * newLevel + goldPerKillBonus) * skill.goldPerKillMult);
+      if (newLevel % 25 === 0) goldGained += 50 * newLevel;
       maxHp = Math.round(10 * Math.pow(1.2, newLevel));
       hp = maxHp;
     }
@@ -82,13 +106,23 @@ export class AdaptiveModule implements EnginePlugin {
   getActionMetadata(state: GameState): Record<string, any> | undefined {
     const adaptiveState: AdaptiveModuleState = state.pluginState[this.id];
     if (!adaptiveState) return undefined;
+
+    const gear = this.getGearBonuses(state);
+    const skill = this.getSkillBonuses(state);
     const tapDamage = adaptiveState.tapDamage || 1;
+
+    // Expose the real effective tap damage (base × skill mult + gear) so UI can show it
+    const effectiveTapDmg = Math.round((tapDamage + gear.tapDamage) * skill.tapDmgMult);
+    const autoDps = Math.round((1 + gear.autoDps + skill.autoDpsBonus) * skill.autoDpsMult * 10) / 10;
+
     return {
       upgrade: {
         key: 'UPGRADE_TAP',
         cost: Math.round(15 + tapDamage * 8),
         nextValue: tapDamage + 1,
-      }
+      },
+      effectiveTapDmg,
+      autoDps,
     };
   }
 
@@ -98,8 +132,16 @@ export class AdaptiveModule implements EnginePlugin {
 
     if (action.type === 'TAP_DAMAGE') {
       const gear = this.getGearBonuses(state);
+      const skill = this.getSkillBonuses(state);
       const comboMult = state.pluginState.combo?.multiplier ?? 1;
-      const tapDmg = ((adaptiveState.tapDamage || 1) + gear.tapDamage) * comboMult;
+      const baseTap = (adaptiveState.tapDamage || 1) + gear.tapDamage;
+      let tapDmg = baseTap * skill.tapDmgMult * comboMult;
+
+      // Crit roll
+      if (skill.critChance > 0 && Math.random() < skill.critChance) {
+        tapDmg *= 3;
+      }
+
       const hp = Math.max(0, adaptiveState.monsterHp - tapDmg);
       let defeated = adaptiveState.monstersDefeated;
       let maxHp = adaptiveState.monsterMaxHp;
@@ -109,7 +151,7 @@ export class AdaptiveModule implements EnginePlugin {
         const newLevel = state.level + 1;
         defeated += 1;
         maxHp = Math.round(10 * Math.pow(1.2, newLevel));
-        goldGained = 10 + 8 * newLevel + gear.goldPerKill;
+        goldGained = Math.round((10 + 8 * newLevel + gear.goldPerKill) * skill.goldPerKillMult);
         if (newLevel % 25 === 0) goldGained += 50 * newLevel;
         return {
           level: newLevel,
@@ -129,9 +171,8 @@ export class AdaptiveModule implements EnginePlugin {
 
       if (gold >= cost) {
         const newTapDamage = (adaptiveState.tapDamage || 1) + 1;
-        const nextResources = { ...state.resources, gold: gold - cost };
         return {
-          resources: nextResources,
+          resources: { ...state.resources, gold: gold - cost },
           pluginState: {
             [this.id]: {
               ...adaptiveState,

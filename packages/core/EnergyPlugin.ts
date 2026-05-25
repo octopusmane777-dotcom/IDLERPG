@@ -3,29 +3,28 @@ import { EnginePlugin, GameState } from './BaseTypes';
 export interface EnergyPluginState {
   energy: number;
   maxEnergy: number;
-  cooldowns: Record<string, number>; // remaining seconds per spell ID
-  spellLevels: Record<string, number>; // upgrade level per spell ID
+  cooldowns: Record<string, number>;
+  spellLevels: Record<string, number>;
 }
 
 const SPELLS = [
-  { id: 'SLASH', name: 'Ping Flood', baseCost: 5, baseMultiplier: 2, baseCooldown: 5, color: '#888' },
-  { id: 'FIREBALL', name: 'Brute Force', baseCost: 10, baseMultiplier: 5, baseCooldown: 10, color: '#e94560' },
-  { id: 'LIGHTNING', name: 'SQL Injection', baseCost: 15, baseMultiplier: 10, baseCooldown: 15, color: '#ffd700' },
-  { id: 'METEOR', name: 'Zero-Day Exploit', baseCost: 20, baseMultiplier: 20, baseCooldown: 25, color: '#7b2ff7' },
-  { id: 'ULTIMATE', name: 'Rootkit Deployment', baseCost: 30, baseMultiplier: 40, baseCooldown: 45, color: '#00d4ff' },
+  { id: 'OVERCLOCK',      name: 'Overclock',      baseCost: 5,  baseMultiplier: 2,  baseCooldown: 5,  color: '#00e5ff' },
+  { id: 'RAM_SURGE',      name: 'RAM Surge',       baseCost: 10, baseMultiplier: 5,  baseCooldown: 10, color: '#00e676' },
+  { id: 'GPU_RENDER',     name: 'GPU Render',      baseCost: 15, baseMultiplier: 12, baseCooldown: 15, color: '#ffd700' },
+  { id: 'KERNEL_PANIC',   name: 'Kernel Panic',    baseCost: 20, baseMultiplier: 22, baseCooldown: 25, color: '#e63946' },
+  { id: 'NEURAL_CASCADE', name: 'Neural Cascade',  baseCost: 30, baseMultiplier: 45, baseCooldown: 45, color: '#ff6b35' },
 ];
 
-/** Upgrade cost for a spell at its current level */
+const ALL_SPELL_IDS = SPELLS.map(s => s.id);
+
 function spellUpgradeCost(spell: typeof SPELLS[0], level: number): number {
   return Math.round(spell.baseCost * 10 * Math.pow(1.5, level));
 }
 
-/** Current multiplier for a spell given its level */
 function spellMultiplier(spell: typeof SPELLS[0], level: number): number {
   return spell.baseMultiplier + level * 2;
 }
 
-/** Current cooldown for a spell given its level (min 1s) */
 function spellCooldown(spell: typeof SPELLS[0], level: number): number {
   return Math.max(1, spell.baseCooldown - level);
 }
@@ -36,20 +35,27 @@ export class EnergyPlugin implements EnginePlugin {
   onInit(engine: any) {
     const existing = engine.getPluginState(this.id);
     if (!existing || Object.keys(existing).length === 0) {
+      const spellLevels: Record<string, number> = {};
+      for (const s of SPELLS) spellLevels[s.id] = 0;
       engine.setPluginState(this.id, {
         energy: 50,
         maxEnergy: 50,
         cooldowns: {},
-        spellLevels: { SLASH: 0, FIREBALL: 0, LIGHTNING: 0, METEOR: 0, ULTIMATE: 0 },
+        spellLevels,
       } as EnergyPluginState);
     } else {
-      // Ensure spellLevels exists (migration from older state)
       const s = existing as EnergyPluginState;
-      if (!s.spellLevels) {
-        engine.setPluginState(this.id, {
-          ...s,
-          spellLevels: { SLASH: 0, FIREBALL: 0, LIGHTNING: 0, METEOR: 0, ULTIMATE: 0 },
-        });
+      // Migrate: ensure all new spell IDs exist
+      const spellLevels = { ...(s.spellLevels || {}) };
+      let migrated = false;
+      for (const sp of SPELLS) {
+        if (spellLevels[sp.id] === undefined) {
+          spellLevels[sp.id] = 0;
+          migrated = true;
+        }
+      }
+      if (migrated) {
+        engine.setPluginState(this.id, { ...s, spellLevels });
       }
     }
   }
@@ -58,24 +64,24 @@ export class EnergyPlugin implements EnginePlugin {
     const eState: EnergyPluginState = state.pluginState[this.id];
     if (!eState) return;
 
-    // Read gear energy regen bonus
+    // Read gear energy regen bonus from installed hardware
     const eq = state.pluginState?.equipment;
     let gearRegenBoost = 0;
-    if (eq?.equipped) {
-      const inv = eq.inventory || [];
-      for (const slot of ['weapon', 'armor', 'ring'] as const) {
-        const gearId = eq.equipped[slot];
-        if (!gearId) continue;
-        const gear = inv.find((g: any) => g.id === gearId);
-        if (gear?.bonuses?.energyRegen) gearRegenBoost += gear.bonuses.energyRegen;
+    if (eq) {
+      const slots: string[] = [...(eq.ramSlots || []), ...(eq.gpuSlots || [])];
+      for (const itemId of slots) {
+        if (!itemId) continue;
+        const item = (eq.inventory || []).find((g: any) => g.id === itemId);
+        if (item?.bonuses?.energyRegen) gearRegenBoost += item.bonuses.energyRegen;
       }
     }
 
-    const newMax = 50;
-    const energyGain = deltaSec / 3 + gearRegenBoost * deltaSec;
-    const energy = Math.min(newMax, (eState.energy || 0) + energyGain);
+    // Read skill bonuses
+    const skillBonuses = _getSkillEnergyBonus(state);
+    const maxEnergy = 50 + (state.pluginState?.skilltree ? skillBonuses.maxEnergyBonus : 0);
+    const energyGain = deltaSec / 3 + gearRegenBoost * deltaSec + skillBonuses.regenBonus * deltaSec;
+    const energy = Math.min(maxEnergy, (eState.energy || 0) + energyGain);
 
-    // Tick down cooldowns
     const cooldowns: Record<string, number> = { ...(eState.cooldowns || {}) };
     for (const id of Object.keys(cooldowns)) {
       if (cooldowns[id] > 0) {
@@ -86,7 +92,7 @@ export class EnergyPlugin implements EnginePlugin {
 
     return {
       pluginState: {
-        [this.id]: { energy, maxEnergy: newMax, cooldowns, spellLevels: eState.spellLevels || {} },
+        [this.id]: { energy, maxEnergy, cooldowns, spellLevels: eState.spellLevels || {} },
       },
     };
   }
@@ -98,12 +104,14 @@ export class EnergyPlugin implements EnginePlugin {
     const cooldowns = eState.cooldowns || {};
     const spellLevels = eState.spellLevels || {};
     const gold = state.resources.gold || 0;
+    const skillBonuses = _getSkillEnergyBonus(state);
 
     const spells = SPELLS.map(s => {
       const lvl = spellLevels[s.id] || 0;
       const cost = s.baseCost;
       const mult = spellMultiplier(s, lvl);
-      const cd = spellCooldown(s, lvl);
+      const baseCd = spellCooldown(s, lvl);
+      const cd = Math.max(1, Math.round(baseCd * skillBonuses.cooldownMult * 10) / 10);
       const upgradeCost = spellUpgradeCost(s, lvl);
       return {
         id: s.id,
@@ -134,7 +142,6 @@ export class EnergyPlugin implements EnginePlugin {
     const eState: EnergyPluginState = state.pluginState[this.id];
     if (!eState) return;
 
-    // Handle spell upgrades
     if (action.type && action.type.startsWith('UPGRADE_')) {
       const spellId = action.type.replace('UPGRADE_', '');
       const spell = SPELLS.find(s => s.id === spellId);
@@ -155,40 +162,62 @@ export class EnergyPlugin implements EnginePlugin {
       };
     }
 
-    // Handle spell casts
     const spell = SPELLS.find(s => s.id === action.type);
     if (!spell) return;
 
     const currentEnergy = eState.energy || 0;
     const cooldowns = eState.cooldowns || {};
     if (currentEnergy < spell.baseCost) return;
-    if (cooldowns[spell.id] > 0) return; // on cooldown
+    if (cooldowns[spell.id] > 0) return;
 
-    // Read gear spell multiplier bonus
+    // Gear spell multiplier from installed hardware
     const eq = state.pluginState?.equipment;
     let gearSpellMult = 0;
-    if (eq?.equipped) {
-      const inv = eq.inventory || [];
-      for (const slot of ['weapon', 'armor', 'ring'] as const) {
-        const gearId = eq.equipped[slot];
-        if (!gearId) continue;
-        const gear = inv.find((g: any) => g.id === gearId);
-        if (gear?.bonuses?.spellMultiplier) gearSpellMult += gear.bonuses.spellMultiplier;
+    if (eq) {
+      const slots: string[] = [...(eq.ramSlots || []), ...(eq.gpuSlots || [])];
+      for (const itemId of slots) {
+        if (!itemId) continue;
+        const item = (eq.inventory || []).find((g: any) => g.id === itemId);
+        if (item?.bonuses?.spellMultiplier) gearSpellMult += item.bonuses.spellMultiplier;
       }
     }
 
+    const skillBonuses = _getSkillEnergyBonus(state);
     const adaptiveState = state.pluginState.adaptive;
     const tapDamage = adaptiveState?.tapDamage || 1;
     const spellLevels = eState.spellLevels || {};
     const lvl = spellLevels[spell.id] || 0;
-    const damage = (tapDamage + gearSpellMult) * spellMultiplier(spell, lvl);
+    const baseDamage = (tapDamage + gearSpellMult) * spellMultiplier(spell, lvl);
+    const damage = baseDamage * (1 + skillBonuses.spellMultBonus);
 
-    let hp = Math.max(0, (adaptiveState?.monsterHp || 10) - damage);
+    // Neural Cascade: chains hits per installed hardware piece
+    let finalDamage = damage;
+    if (spell.id === 'NEURAL_CASCADE' && eq) {
+      const installedCount = [...(eq.ramSlots || []), ...(eq.gpuSlots || [])].filter(Boolean).length;
+      finalDamage = damage * Math.max(1, installedCount);
+    }
+
+    let hp = Math.max(0, (adaptiveState?.monsterHp || 10) - finalDamage);
     let defeated = adaptiveState?.monstersDefeated || 0;
     let maxHp = adaptiveState?.monsterMaxHp || 10;
     let goldGained = 0;
 
-    const newCooldowns = { ...cooldowns, [spell.id]: spellCooldown(spell, lvl) };
+    const skillCdMult = skillBonuses.cooldownMult;
+    const baseCd = spellCooldown(spell, lvl);
+    const cd = Math.max(1, baseCd * skillCdMult);
+
+    // Arcane Echo: add 1 auto-tick hit's worth of damage
+    if (skillBonuses.arcaneEcho && adaptiveState) {
+      const autoDps = 1 + (adaptiveState.tapDamage || 0);
+      hp = Math.max(0, hp - autoDps);
+    }
+
+    const newCooldowns = { ...cooldowns, [spell.id]: cd };
+
+    // Infinite Loop: 5% chance to reset cooldown
+    if (skillBonuses.infiniteLoop && Math.random() < 0.05) {
+      delete newCooldowns[spell.id];
+    }
 
     if (hp <= 0) {
       const newLevel = state.level + 1;
@@ -200,8 +229,7 @@ export class EnergyPlugin implements EnginePlugin {
         level: newLevel,
         resources: { ...state.resources, gold: (state.resources.gold || 0) + goldGained },
         pluginState: {
-          [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: 50, cooldowns: newCooldowns, spellLevels },
-          // A3: only update the specific fields we changed, not the full adaptive state
+          [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: eState.maxEnergy || 50, cooldowns: newCooldowns, spellLevels },
           adaptive: {
             ...adaptiveState,
             monsterHp: maxHp,
@@ -214,7 +242,7 @@ export class EnergyPlugin implements EnginePlugin {
 
     return {
       pluginState: {
-        [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: 50, cooldowns: newCooldowns, spellLevels },
+        [this.id]: { energy: currentEnergy - spell.baseCost, maxEnergy: eState.maxEnergy || 50, cooldowns: newCooldowns, spellLevels },
         adaptive: {
           ...adaptiveState,
           monsterHp: hp,
@@ -222,4 +250,26 @@ export class EnergyPlugin implements EnginePlugin {
       },
     };
   }
+}
+
+/** Read skill bonuses relevant to energy plugin without circular import */
+function _getSkillEnergyBonus(state: GameState): {
+  maxEnergyBonus: number;
+  regenBonus: number;
+  cooldownMult: number;
+  spellMultBonus: number;
+  arcaneEcho: boolean;
+  infiniteLoop: boolean;
+} {
+  const st = state.pluginState?.skilltree;
+  if (!st) return { maxEnergyBonus: 0, regenBonus: 0, cooldownMult: 1, spellMultBonus: 0, arcaneEcho: false, infiniteLoop: false };
+  const u = new Set<string>(st.unlocked ?? []);
+  return {
+    maxEnergyBonus:  u.has('a1') ? 60 : 0,
+    regenBonus:      (u.has('s3') ? 1 : 0) + (u.has('p4') ? 1 : 0),
+    cooldownMult:    (u.has('s4') ? 0.90 : 1) * (u.has('a2') ? 0.75 : 1),
+    spellMultBonus:  (u.has('s1') ? 0.05 : 0) + (u.has('p2') ? 0.05 : 0) + (u.has('p5') ? 0.10 : 0) + (u.has('a3') ? 0.25 : 0),
+    arcaneEcho:      u.has('a7'),
+    infiniteLoop:    u.has('a5'),
+  };
 }

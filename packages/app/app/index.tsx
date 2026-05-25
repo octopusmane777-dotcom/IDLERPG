@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   StyleSheet, Text, View, Pressable, Animated, ScrollView,
-  Dimensions, Modal, Alert, StatusBar, Platform, ImageBackground,
+  Dimensions, Modal, Alert, StatusBar, Platform,
 } from 'react-native';
 import { useToast } from '@idlerpg/ui';
 import { GameEngine } from '@idlerpg/core/GameEngine';
@@ -23,7 +23,7 @@ import { LocalDataRepository } from '@idlerpg/core/LocalDataRepository';
 import { FirebaseDataRepository } from '@idlerpg/core/FirebaseDataRepository';
 import { CompositeRepository } from '@idlerpg/core/CompositeRepository';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const { width: SCREEN_W } = Dimensions.get('window');
 
 // ── theme ────────────────────────────────────────────────────────────────────
 const C = {
@@ -135,15 +135,15 @@ function StatChip({ label, value, color = C.cyan }: { label: string; value: stri
   );
 }
 
-type TabId = 'combat' | 'network' | 'energy' | 'gear' | 'missions' | 'prestige' | 'skilltree';
+type TabId = 'combat' | 'network' | 'energy' | 'board' | 'missions' | 'prestige' | 'skilltree';
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'combat',   label: 'HACK' },
-  { id: 'network',  label: 'NET' },
-  { id: 'energy',   label: 'POWER' },
-  { id: 'gear',     label: 'HW' },
-  { id: 'missions', label: 'OPS' },
-  { id: 'prestige', label: 'ASCEND' },
-  { id: 'skilltree',label: 'TREE' },
+  { id: 'combat',    label: 'HACK' },
+  { id: 'network',   label: 'NET' },
+  { id: 'energy',    label: 'POWER' },
+  { id: 'board',     label: 'BOARD' },
+  { id: 'missions',  label: 'OPS' },
+  { id: 'prestige',  label: 'ASCEND' },
+  { id: 'skilltree', label: 'TREE' },
 ];
 
 // ── main component ────────────────────────────────────────────────────────────
@@ -156,6 +156,8 @@ export default function App() {
   const tapScale = useRef(new Animated.Value(1)).current;
   const attackGlow = useRef(new Animated.Value(0)).current;
   const prevState = useRef(state);
+  // Prestige pulse animation
+  const prestigePulse = useRef(new Animated.Value(1)).current;
 
   const spawnDmg = (text: string, color: string) => {
     const anim = new Animated.Value(1);
@@ -190,6 +192,23 @@ export default function App() {
     prevState.current = state;
   }, [state]);
 
+  // Pulse prestige button when available
+  useEffect(() => {
+    const meta = engine.getUpgradeMetadata();
+    const p = meta.plugins['prestige']?.prestige;
+    if (p?.canPrestige) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(prestigePulse, { toValue: 1.04, duration: 800, useNativeDriver: true }),
+          Animated.timing(prestigePulse, { toValue: 1, duration: 800, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      prestigePulse.stopAnimation();
+      prestigePulse.setValue(1);
+    }
+  }, [state.level]);
+
   const triggerHaptic = async (type: string) => {
     try {
       const h = await import('expo-haptics').then(m => m).catch(() => null);
@@ -202,13 +221,38 @@ export default function App() {
 
   const handleTap = () => {
     triggerHaptic('tap');
-    const tapDmg = engine.getState().pluginState.adaptive?.tapDamage ?? 1;
-    spawnDmg(`-${tapDmg}`, C.red);
+    const s = engine.getState();
+    const adaptState = s.pluginState.adaptive;
+    const eq = s.pluginState?.equipment;
+
+    // Compute real effective damage (mirrors AdaptiveModule logic)
+    const baseTap = adaptState?.tapDamage ?? 1;
+    let gearTap = 0;
+    if (eq) {
+      const slots: string[] = [...(eq.ramSlots || []), ...(eq.gpuSlots || [])];
+      for (const itemId of slots) {
+        if (!itemId) continue;
+        const item = (eq.inventory || []).find((g: any) => g.id === itemId);
+        if (item?.bonuses?.tapDamage) gearTap += item.bonuses.tapDamage;
+      }
+    }
+    const st = s.pluginState?.skilltree;
+    let tapDmgMult = 1;
+    if (st) {
+      const u = new Set<string>(st.unlocked ?? []);
+      tapDmgMult = 1
+        + (u.has('s1') ? 0.15 : 0) + (u.has('s2') ? 0.20 : 0) + (u.has('s4') ? 0.25 : 0)
+        + (u.has('p1') ? 0.05 : 0) + (u.has('p3') ? 0.10 : 0) + (u.has('a2') ? 0.05 : 0);
+    }
+    const comboMult = s.pluginState.combo?.multiplier ?? 1;
+    const realDamage = Math.round((baseTap + gearTap) * tapDmgMult * comboMult);
+    spawnDmg(`-${fmt(realDamage)}`, C.red);
+
     engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'combo', action: { type: 'TAP_DAMAGE' } } });
     engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
     const bossState = engine.getState().pluginState.boss;
     if (bossState?.bossActive) {
-      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: tapDmg } } });
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'boss', action: { type: 'BOSS_DAMAGE', damage: realDamage } } });
     } else {
       engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'adaptive', action: { type: 'TAP_DAMAGE' } } });
     }
@@ -231,6 +275,8 @@ export default function App() {
   const monsterMaxHp = a?.monsterMaxHp ?? 0;
   const monstersDefeated = a?.monstersDefeated ?? 0;
   const tapDamage = a?.tapDamage ?? 1;
+  const effectiveTapDmg = meta.plugins['adaptive']?.effectiveTapDmg ?? tapDamage;
+  const autoDps = meta.plugins['adaptive']?.autoDps ?? 1;
   const combo = meta.plugins['combo']?.combo;
   const boss = meta.plugins['boss']?.boss;
   const network = meta.plugins['network']?.network;
@@ -257,7 +303,7 @@ export default function App() {
           <Text style={sx.hudLabel}>COMPUTE</Text>
           <Text style={sx.hudGold}>{fmt(gold)}</Text>
           {(network?.totalOutput ?? 0) > 0 && (
-            <Text style={sx.hudPassive}>+{(network.totalOutput).toFixed(1)}/s</Text>
+            <Text style={sx.hudPassive}>+{(network.totalOutput).toFixed(1)} DPS</Text>
           )}
         </View>
         <View style={sx.hudCenter}>
@@ -307,7 +353,7 @@ export default function App() {
       {boss?.bossActive && (
         <View style={sx.bossCard}>
           <View style={sx.bossHeader}>
-            <Text style={sx.bossTitle}>⚠ BOSS ENCOUNTER</Text>
+            <Text style={sx.bossTitle}>BOSS ENCOUNTER</Text>
             <Text style={[sx.bossTimer, boss.bossTimer < 10 && { color: C.red }]}>
               {boss.bossTimer.toFixed(0)}s
             </Text>
@@ -335,7 +381,6 @@ export default function App() {
 
       {/* ── combat arena ── */}
       <Animated.View style={[sx.arena, { backgroundColor: glowColor }]}>
-        {/* target info */}
         <View style={sx.targetHeader}>
           <Text style={[sx.targetIcon, { color: boss?.bossActive ? C.red : threatCol }]}>
             {boss?.bossActive ? '◈' : stageIcon}
@@ -348,7 +393,6 @@ export default function App() {
           </View>
         </View>
 
-        {/* HP bar */}
         {!boss?.bossActive && (
           <View style={{ marginTop: 8 }}>
             <HexBar current={monsterHp} max={monsterMaxHp} color={C.red} height={10} />
@@ -359,20 +403,18 @@ export default function App() {
           </View>
         )}
 
-        {/* stats row */}
         <View style={sx.statsRow}>
-          <StatChip label="TAP DMG" value={String(tapDamage)} color={C.cyan} />
-          <StatChip label="AUTO DPS" value="1" color={C.green} />
+          <StatChip label="TAP DMG" value={String(effectiveTapDmg)} color={C.cyan} />
+          <StatChip label="AUTO DPS" value={String(autoDps)} color={C.green} />
           <StatChip label="DEFEATED" value={fmt(monstersDefeated)} color={C.gold} />
         </View>
 
-        {/* ATTACK button */}
         <Pressable onPress={handleTap} style={sx.attackWrap}
           accessibilityRole="button" accessibilityLabel="Attack target">
           <Animated.View style={[sx.attackBtn, { transform: [{ scale: tapScale }] }]}>
             <View style={sx.attackBtnInner}>
               <Text style={sx.attackLabel}>ATTACK</Text>
-              <Text style={sx.attackDmg}>-{tapDamage}</Text>
+              <Text style={sx.attackDmg}>-{effectiveTapDmg}</Text>
             </View>
           </Animated.View>
         </Pressable>
@@ -406,7 +448,6 @@ export default function App() {
 
       {/* ── tab drawer ── */}
       <View style={sx.drawer}>
-        {/* tab row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={sx.tabScroll} contentContainerStyle={sx.tabRow}>
           {TABS.map(t => (
             <Pressable key={t.id} style={[sx.tabBtn, tab === t.id && sx.tabBtnActive]} onPress={() => setTab(t.id)}>
@@ -423,7 +464,7 @@ export default function App() {
               <SectionHeader title="TAP UPGRADE" />
               <UpgradeRow
                 name="Tap Power"
-                sub={`Level ${Math.max(0, tapDamage - 1)} · +1 damage per tap`}
+                sub={`Level ${Math.max(0, tapDamage - 1)} · +1 base damage per tap`}
                 cost={meta.plugins['adaptive']?.upgrade?.cost ?? 0}
                 canBuy={canUpgradeTap}
                 onBuy={() => {
@@ -432,12 +473,12 @@ export default function App() {
                 }}
               />
               <SectionHeader title="ACHIEVEMENTS" sub={`${achievements?.unlockedCount ?? 0} / ${achievements?.total ?? 6} unlocked`} />
-              {(achievements?.list ?? []).map((a: any) => (
-                <View key={a.id} style={[sx.listRow, a.unlocked && sx.listRowGreen]}>
-                  <Text style={[sx.listDot, { color: a.unlocked ? C.green : C.dimmer }]}>{a.unlocked ? '◆' : '◇'}</Text>
+              {(achievements?.list ?? []).map((ac: any) => (
+                <View key={ac.id} style={[sx.listRow, ac.unlocked && sx.listRowGreen]}>
+                  <Text style={[sx.listDot, { color: ac.unlocked ? C.green : C.dimmer }]}>{ac.unlocked ? '◆' : '◇'}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={[sx.listName, a.unlocked && { color: C.green }]}>{a.name}</Text>
-                    <Text style={sx.listSub}>{a.description}{a.unlocked ? `  +${a.reward} CPU` : ''}</Text>
+                    <Text style={[sx.listName, ac.unlocked && { color: C.green }]}>{ac.name}</Text>
+                    <Text style={sx.listSub}>{ac.description}{ac.unlocked ? `  +${ac.reward} CPU` : ''}</Text>
                   </View>
                 </View>
               ))}
@@ -447,11 +488,11 @@ export default function App() {
           {/* NETWORK TAB */}
           {tab === 'network' && (
             <View style={sx.tabContent}>
-              <SectionHeader title="PASSIVE NODES" sub={`${(network?.totalOutput ?? 0).toFixed(2)} CPU/s total output`} />
+              <SectionHeader title="PASSIVE NODES" sub={`${(network?.totalOutput ?? 0).toFixed(2)} DPS total output`} />
               {(network?.nodes ?? []).map((n: any) => (
                 <UpgradeRow key={n.id}
                   name={`${n.name}  [${n.count}]`}
-                  sub={`${n.description} · ${n.rate.toFixed(2)}/s active`}
+                  sub={`${n.description} · ${n.rate.toFixed(2)} DPS active`}
                   cost={n.nextCost}
                   canBuy={n.canBuy}
                   onBuy={() => {
@@ -507,7 +548,7 @@ export default function App() {
                         accessibilityRole="button" accessibilityLabel={`Upgrade ${s.name}`} accessibilityState={{ disabled: !s.canUpgrade }}
                       >
                         <Text style={[sx.spellUpText, !s.canUpgrade && { color: C.dim }]}>
-                          UPGRADE  {s.canUpgrade ? fmt(s.upgradeCost) : fmt(s.upgradeCost)}
+                          UPGRADE  {fmt(s.upgradeCost)}
                         </Text>
                       </Pressable>
                     </View>
@@ -517,50 +558,139 @@ export default function App() {
             </View>
           )}
 
-          {/* GEAR TAB */}
-          {tab === 'gear' && (
+          {/* BOARD TAB */}
+          {tab === 'board' && (
             <View style={sx.tabContent}>
-              <SectionHeader title="EQUIPPED" />
-              {(['weapon', 'armor', 'ring'] as const).map(slot => {
-                const gearId = equipment?.equipped?.[slot];
-                const gear = gearId ? (equipment?.inventory ?? []).find((g: any) => g.id === gearId) : null;
-                return (
-                  <View key={slot} style={[sx.gearSlot, !gear && { opacity: 0.4 }]}>
-                    <Text style={sx.gearSlotTag}>{slot.toUpperCase()}</Text>
-                    {gear ? (
-                      <View style={{ flex: 1 }}>
-                        <Text style={[sx.gearName, { color: gear.color ?? C.gold }]}>{gear.name}</Text>
-                        <Text style={sx.gearStats}>{Object.entries(gear.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('  ')}</Text>
-                      </View>
-                    ) : (
-                      <Text style={[sx.gearStats, { flex: 1 }]}>— empty slot —</Text>
-                    )}
-                    {gear && (
-                      <Pressable style={sx.gearUnequip} onPress={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNEQUIP', slot } } })}>
-                        <Text style={sx.gearUnequipText}>REMOVE</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                );
-              })}
-              <SectionHeader title="INVENTORY" sub={`${(equipment?.inventory ?? []).filter((g: any) => !g.equipped).length} items`} />
-              {(equipment?.inventory ?? []).filter((g: any) => !g.equipped).map((g: any) => (
+              {/* Motherboard header */}
+              <View style={sx.mbCard}>
+                <View style={sx.mbTierBadge}>
+                  <Text style={sx.mbTierText}>TIER {equipment?.motherboardTier ?? 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={sx.mbName}>{equipment?.motherboardName ?? 'AXIOM-1 MicroATX'}</Text>
+                  <Text style={sx.mbSlotInfo}>
+                    {equipment?.ramSlotCount ?? 2} RAM · {equipment?.gpuSlotCount ?? 1} GPU
+                  </Text>
+                </View>
+                {!equipment?.maxTier && (
+                  <Pressable
+                    style={[sx.mbUpgradeBtn, !(equipment?.canUpgradeMotherboard) && sx.btnOff]}
+                    disabled={!equipment?.canUpgradeMotherboard}
+                    onPress={() => {
+                      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UPGRADE_MOTHERBOARD' } } });
+                      showMessage(`Motherboard upgraded!`);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Upgrade motherboard"
+                    accessibilityState={{ disabled: !equipment?.canUpgradeMotherboard }}
+                  >
+                    <Text style={[sx.mbUpgradeBtnText, !equipment?.canUpgradeMotherboard && { color: C.dim }]}>
+                      {equipment?.canUpgradeMotherboard ? `UPGRADE  ${fmt(equipment?.nextMotherboardCost ?? 0)}` : `${fmt(equipment?.nextMotherboardCost ?? 0)} NEEDED`}
+                    </Text>
+                  </Pressable>
+                )}
+                {equipment?.maxTier && <Text style={[sx.mbUpgradeBtnText, { color: C.gold }]}>MAX TIER</Text>}
+              </View>
+
+              {/* RAM Slots */}
+              <SectionHeader title="RAM SLOTS" sub={`${(equipment?.ramSlots ?? []).filter(Boolean).length} / ${equipment?.ramSlotCount ?? 2} installed`} />
+              <View style={sx.slotGrid}>
+                {Array.from({ length: equipment?.ramSlotCount ?? 2 }).map((_, i) => {
+                  const itemId = (equipment?.ramSlots ?? [])[i] ?? null;
+                  const item = itemId ? (equipment?.inventory ?? []).find((g: any) => g.id === itemId) : null;
+                  return (
+                    <SlotCard
+                      key={`ram-${i}`}
+                      slotLabel={`RAM ${i + 1}`}
+                      item={item}
+                      onUninstall={itemId ? () => {
+                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNINSTALL', itemId } } });
+                      } : undefined}
+                    />
+                  );
+                })}
+              </View>
+
+              {/* GPU Slots */}
+              <SectionHeader title="GPU SLOTS" sub={`${(equipment?.gpuSlots ?? []).filter(Boolean).length} / ${equipment?.gpuSlotCount ?? 1} installed`} />
+              <View style={sx.slotGrid}>
+                {Array.from({ length: equipment?.gpuSlotCount ?? 1 }).map((_, i) => {
+                  const itemId = (equipment?.gpuSlots ?? [])[i] ?? null;
+                  const item = itemId ? (equipment?.inventory ?? []).find((g: any) => g.id === itemId) : null;
+                  return (
+                    <SlotCard
+                      key={`gpu-${i}`}
+                      slotLabel={`GPU ${i + 1}`}
+                      item={item}
+                      onUninstall={itemId ? () => {
+                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNINSTALL', itemId } } });
+                      } : undefined}
+                    />
+                  );
+                })}
+              </View>
+
+              {/* Inventory */}
+              <SectionHeader title="INVENTORY" sub={`${(equipment?.inventory ?? []).filter((g: any) => !g.installedIn).length} components`} />
+              {(equipment?.inventory ?? []).filter((g: any) => !g.installedIn).map((g: any) => (
                 <View key={g.id} style={sx.gearItem}>
                   <View style={[sx.gearItemAccent, { backgroundColor: g.color ?? C.dim }]} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[sx.gearName, { color: g.color ?? C.gold }]}>{g.name}</Text>
-                    <Text style={sx.gearStats}>{g.slot}  ·  {Object.entries(g.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('  ')}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, paddingBottom: 0 }}>
+                      <Text style={[sx.gearName, { color: g.color ?? C.gold }]}>{g.name}</Text>
+                      <Text style={[sx.rarityTag, { borderColor: g.color ?? C.dim, color: g.color ?? C.dim }]}>{g.rarity.toUpperCase()}</Text>
+                      <Text style={sx.typeTag}>{g.type.toUpperCase()}</Text>
+                    </View>
+                    <Text style={[sx.gearStats, { paddingHorizontal: 10, paddingBottom: 8 }]}>
+                      {Object.entries(g.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('  ')}
+                    </Text>
                   </View>
-                  <Pressable style={sx.gearEquip} onPress={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'EQUIP', gearId: g.id } } })}>
-                    <Text style={sx.gearEquipText}>EQUIP</Text>
-                  </Pressable>
-                  <Pressable style={sx.gearScrap} onPress={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'SCRAP', gearId: g.id } } })}>
-                    <Text style={sx.gearScrapText}>SCRAP</Text>
-                  </Pressable>
+                  {/* Install buttons for available slots */}
+                  <View style={{ flexDirection: 'column', gap: 4, padding: 8 }}>
+                    {g.type === 'ram' && Array.from({ length: equipment?.ramSlotCount ?? 2 }).map((_, i) => {
+                      const slotFilled = (equipment?.ramSlots ?? [])[i];
+                      if (slotFilled) return null;
+                      return (
+                        <Pressable key={i} style={sx.installBtn}
+                          onPress={() => {
+                            engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'INSTALL_RAM', itemId: g.id, slotIndex: i } } });
+                            showMessage(`${g.name} installed in RAM ${i + 1}`);
+                          }}
+                          accessibilityRole="button" accessibilityLabel={`Install in RAM slot ${i + 1}`}
+                        >
+                          <Text style={sx.installBtnText}>RAM {i + 1}</Text>
+                        </Pressable>
+                      );
+                    })}
+                    {g.type === 'gpu' && Array.from({ length: equipment?.gpuSlotCount ?? 1 }).map((_, i) => {
+                      const slotFilled = (equipment?.gpuSlots ?? [])[i];
+                      if (slotFilled) return null;
+                      return (
+                        <Pressable key={i} style={[sx.installBtn, { borderColor: C.gold }]}
+                          onPress={() => {
+                            engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'INSTALL_GPU', itemId: g.id, slotIndex: i } } });
+                            showMessage(`${g.name} installed in GPU ${i + 1}`);
+                          }}
+                          accessibilityRole="button" accessibilityLabel={`Install in GPU slot ${i + 1}`}
+                        >
+                          <Text style={[sx.installBtnText, { color: C.gold }]}>GPU {i + 1}</Text>
+                        </Pressable>
+                      );
+                    })}
+                    <Pressable style={sx.gearScrap}
+                      onPress={() => {
+                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'SCRAP', itemId: g.id } } });
+                        showMessage(`Scrapped for gold`);
+                      }}
+                      accessibilityRole="button" accessibilityLabel={`Scrap ${g.name}`}
+                    >
+                      <Text style={sx.gearScrapText}>SCRAP</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
-              {(equipment?.inventory ?? []).filter((g: any) => !g.equipped).length === 0 && (
-                <Text style={sx.emptyMsg}>No hardware found. Keep defeating targets.</Text>
+              {(equipment?.inventory ?? []).filter((g: any) => !g.installedIn).length === 0 && (
+                <Text style={sx.emptyMsg}>No hardware in inventory. Keep defeating targets.</Text>
               )}
             </View>
           )}
@@ -600,19 +730,69 @@ export default function App() {
             </View>
           )}
 
-          {/* PRESTIGE TAB */}
+          {/* PRESTIGE / ASCEND TAB */}
           {tab === 'prestige' && (
             <View style={sx.tabContent}>
-              <View style={sx.prestigePanel}>
-                <Text style={sx.prestigeTitle}>ASCENSION PROTOCOL</Text>
-                <Text style={sx.prestigeCores}>{prestige?.cores ?? 0}</Text>
-                <Text style={sx.prestigeCoresLabel}>SHARD{(prestige?.cores ?? 0) !== 1 ? 'S' : ''}</Text>
-                <Text style={sx.prestigeBonus}>+{(((prestige?.bonusMultiplier ?? 1) - 1) * 100).toFixed(1)}% permanent bonus</Text>
-                <View style={sx.prestigeDivider} />
-                <Text style={sx.prestigeReq}>Requirement: Stage {prestige?.requiredLevel ?? 10}</Text>
-                <Text style={sx.prestigeNote}>Resets gold and level · Grants 1 shard · Unlocks skill point</Text>
+              {/* Shard display */}
+              <View style={sx.ascendShardBox}>
+                <View style={sx.ascendShardRing}>
+                  <Text style={sx.ascendShardNum}>{prestige?.cores ?? 0}</Text>
+                  <Text style={sx.ascendShardLabel}>SHARDS</Text>
+                </View>
+                <View style={{ marginTop: 10 }}>
+                  <Text style={sx.ascendBonusLine}>
+                    Permanent bonus: <Text style={{ color: C.gold }}>+{(((prestige?.bonusMultiplier ?? 1) - 1) * 100).toFixed(1)}%</Text>
+                  </Text>
+                  {(prestige?.cores ?? 0) > 0 && (
+                    <Text style={sx.ascendHistoryLine}>
+                      {prestige?.cores} ascension{(prestige?.cores ?? 0) !== 1 ? 's' : ''} completed
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {/* Next bonus meter */}
+              <View style={sx.ascendBonusMeter}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={sx.ascendMeterLabel}>NEXT SHARD BONUS</Text>
+                  <Text style={[sx.ascendMeterLabel, { color: C.gold }]}>+{(((prestige?.nextBonus ?? 1) - 1) * 100).toFixed(1)}%</Text>
+                </View>
+                <HexBar current={(prestige?.cores ?? 0) % 5} max={5} color={C.gold} height={6} />
+              </View>
+
+              {/* Summary card */}
+              <View style={sx.ascendSummaryCard}>
+                <Text style={sx.ascendSummaryTitle}>ASCENSION SUMMARY</Text>
+                <View style={sx.ascendSummaryRow}>
+                  <Text style={sx.ascendSummaryKey}>Stage reset</Text>
+                  <Text style={sx.ascendSummaryVal}>{state.level} → 1</Text>
+                </View>
+                <View style={sx.ascendSummaryRow}>
+                  <Text style={sx.ascendSummaryKey}>Gold reset</Text>
+                  <Text style={[sx.ascendSummaryVal, { color: C.red }]}>{fmt(gold)} → 0</Text>
+                </View>
+                <View style={sx.ascendSummaryRow}>
+                  <Text style={sx.ascendSummaryKey}>Shards gained</Text>
+                  <Text style={[sx.ascendSummaryVal, { color: C.cyan }]}>+1 shard</Text>
+                </View>
+                <View style={sx.ascendSummaryRow}>
+                  <Text style={sx.ascendSummaryKey}>Skill point</Text>
+                  <Text style={[sx.ascendSummaryVal, { color: C.green }]}>+1 point</Text>
+                </View>
+              </View>
+
+              {/* Requirement */}
+              <View style={sx.ascendReqRow}>
+                <Text style={sx.ascendReqLabel}>REQUIREMENT</Text>
+                <Text style={[sx.ascendReqVal, prestige?.canPrestige ? { color: C.green } : { color: C.dim }]}>
+                  Stage {prestige?.requiredLevel ?? 10}  {prestige?.canPrestige ? '✓ MET' : `(${Math.max(0, (prestige?.requiredLevel ?? 10) - state.level)} to go)`}
+                </Text>
+              </View>
+
+              {/* Ascend button */}
+              <Animated.View style={{ transform: [{ scale: prestigePulse }] }}>
                 <Pressable
-                  style={[sx.prestigeBtn, !prestige?.canPrestige && sx.btnOff]}
+                  style={[sx.ascendBtn, prestige?.canPrestige ? sx.ascendBtnActive : sx.ascendBtnLocked]}
                   disabled={!prestige?.canPrestige}
                   onPress={() => {
                     if (!prestige?.canPrestige) return;
@@ -623,9 +803,15 @@ export default function App() {
                   accessibilityLabel={prestige?.canPrestige ? 'Ascend' : `Need stage ${prestige?.requiredLevel}`}
                   accessibilityState={{ disabled: !prestige?.canPrestige }}
                 >
-                  <Text style={sx.prestigeBtnText}>{prestige?.canPrestige ? 'ASCEND' : `NEED STAGE ${prestige?.requiredLevel ?? 10}`}</Text>
+                  <Text style={[sx.ascendBtnText, !prestige?.canPrestige && { color: C.dim }]}>
+                    {prestige?.canPrestige ? 'ASCEND NOW' : `NEED STAGE ${prestige?.requiredLevel ?? 10}`}
+                  </Text>
                 </Pressable>
-              </View>
+              </Animated.View>
+
+              <Text style={sx.ascendFootnote}>
+                Ascend Shards are kept between runs and stack permanently.
+              </Text>
             </View>
           )}
 
@@ -636,9 +822,34 @@ export default function App() {
                 <Text style={sx.skillPoints}>{skilltree?.points ?? 0}</Text>
                 <Text style={sx.skillPointsLabel}>SKILL POINT{(skilltree?.points ?? 0) !== 1 ? 'S' : ''} AVAILABLE</Text>
               </View>
-              <Text style={sx.skillNote}>Earned by prestiging. Each branch must be unlocked in order.</Text>
-              {(['HACK', 'INFRA', 'GHOST'] as const).map(branch => {
-                const branchColor = branch === 'HACK' ? C.cyan : branch === 'INFRA' ? C.green : C.orange;
+              <Text style={sx.skillNote}>
+                Points earned at stage 50, then every 500 stages. First spend locks your path permanently.
+              </Text>
+
+              {/* Path lock warning */}
+              {!(skilltree?.chosenPath) && (skilltree?.points ?? 0) > 0 && (
+                <View style={sx.pathLockWarning}>
+                  <Text style={sx.pathLockText}>WARNING: Choosing a path is permanent. Other paths will be disabled.</Text>
+                </View>
+              )}
+              {skilltree?.chosenPath && (
+                <View style={[sx.pathLockBadge, {
+                  borderColor: skilltree.chosenPath === 'STRIKER' ? C.red : skilltree.chosenPath === 'PHANTOM' ? C.green : C.gold,
+                }]}>
+                  <Text style={[sx.pathLockBadgeText, {
+                    color: skilltree.chosenPath === 'STRIKER' ? C.red : skilltree.chosenPath === 'PHANTOM' ? C.green : C.gold,
+                  }]}>
+                    PATH LOCKED: {skilltree.chosenPath}
+                  </Text>
+                </View>
+              )}
+
+              {(['STRIKER', 'PHANTOM', 'ARCANE'] as const).map(branch => {
+                const branchColor = branch === 'STRIKER' ? C.red : branch === 'PHANTOM' ? C.green : C.gold;
+                const chosenPath = skilltree?.chosenPath ?? null;
+                const isLocked = chosenPath !== null && chosenPath !== branch;
+                if (isLocked) return null; // collapse locked branches
+
                 return (
                   <View key={branch} style={sx.skillBranch}>
                     <View style={[sx.skillBranchHeader, { borderLeftColor: branchColor }]}>
@@ -669,6 +880,20 @@ export default function App() {
                   </View>
                 );
               })}
+
+              {/* Show other paths collapsed */}
+              {skilltree?.chosenPath && (
+                <View style={sx.lockedPaths}>
+                  {(['STRIKER', 'PHANTOM', 'ARCANE'] as const).filter(b => b !== skilltree.chosenPath).map(branch => {
+                    const branchColor = branch === 'STRIKER' ? C.red : branch === 'PHANTOM' ? C.green : C.gold;
+                    return (
+                      <View key={branch} style={[sx.lockedPathRow, { borderColor: branchColor + '44' }]}>
+                        <Text style={[sx.lockedPathText, { color: branchColor + '66' }]}>{branch} BRANCH — LOCKED</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           )}
 
@@ -707,7 +932,7 @@ export default function App() {
           {[
             { label: '+1K', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 1000 } } }) },
             { label: '+100K', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 100000 } } }) },
-            { label: 'ST.15', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 15 } } }) },
+            { label: 'ST.50', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 50 } } }) },
             { label: 'RESET', action: async () => { try { localStorage.removeItem('idlerpg_user_player'); } catch {} location.reload(); } },
           ].map(b => (
             <Pressable key={b.label} style={[sx.devBtn, b.label === 'RESET' && { borderColor: C.red }]} onPress={b.action}>
@@ -749,6 +974,34 @@ function UpgradeRow({ name, sub, cost, canBuy, onBuy }: {
   );
 }
 
+function SlotCard({ slotLabel, item, onUninstall }: {
+  slotLabel: string;
+  item: any | null;
+  onUninstall?: () => void;
+}) {
+  return (
+    <View style={[sx.slotCard, item && { borderColor: item.color ?? C.dim }]}>
+      <Text style={sx.slotLabel}>{slotLabel}</Text>
+      {item ? (
+        <>
+          <Text style={[sx.slotItemName, { color: item.color ?? C.white }]} numberOfLines={1}>{item.name}</Text>
+          <Text style={sx.slotItemStats} numberOfLines={2}>
+            {Object.entries(item.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('\n')}
+          </Text>
+          <Pressable style={sx.slotRemoveBtn} onPress={onUninstall}
+            accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`}>
+            <Text style={sx.slotRemoveText}>REMOVE</Text>
+          </Pressable>
+        </>
+      ) : (
+        <View style={sx.slotEmpty}>
+          <Text style={sx.slotEmptyText}>EMPTY</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ── styles ───────────────────────────────────────────────────────────────────
 const sx = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
@@ -762,7 +1015,6 @@ const sx = StyleSheet.create({
   hudGold: { fontFamily: FONT_MONO, color: C.gold, fontSize: 22, fontWeight: '900' },
   hudPassive: { fontFamily: FONT_MONO, color: C.goldDark, fontSize: 10 },
   hudStage: { fontFamily: FONT_MONO, color: C.white, fontSize: 22, fontWeight: '900' },
-  hudStageName: { color: C.dim, fontSize: 9, fontFamily: FONT_MONO },
   threatBadge: { fontFamily: FONT_MONO, fontSize: 9, fontWeight: '700', letterSpacing: 2, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3 },
   stageLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, marginTop: 3, letterSpacing: 1 },
   settingsIcon: { color: C.dim, fontSize: 18, marginTop: 2 },
@@ -833,7 +1085,6 @@ const sx = StyleSheet.create({
   tabBtnActive: { borderColor: C.cyan },
   tabText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   tabTextActive: { color: C.cyan },
-
   tabContent: { padding: 12, gap: 4 },
 
   // Section header
@@ -865,18 +1116,36 @@ const sx = StyleSheet.create({
   energyLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 2 },
   energyVal: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 13, fontWeight: '700' },
 
-  // Gear
-  gearSlot: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 4, gap: 10 },
-  gearSlotTag: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 1, width: 56 },
+  // BOARD tab — motherboard card
+  mbCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.borderGlow, padding: 14, gap: 12, marginBottom: 4 },
+  mbTierBadge: { backgroundColor: C.cyanDark, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
+  mbTierText: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  mbName: { fontFamily: FONT_MONO, color: C.white, fontSize: 13, fontWeight: '700' },
+  mbSlotInfo: { color: C.dim, fontSize: 10, marginTop: 2 },
+  mbUpgradeBtn: { borderWidth: 1, borderColor: C.cyan, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
+  mbUpgradeBtnText: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 10, fontWeight: '700' },
+
+  // Slot grid
+  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  slotCard: { width: (SCREEN_W - 24 - 8 * 2) / 3, minWidth: 96, backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 10, alignItems: 'flex-start' },
+  slotLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 8, letterSpacing: 1, marginBottom: 4 },
+  slotItemName: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '700', marginBottom: 3 },
+  slotItemStats: { color: C.dim, fontSize: 8, marginBottom: 6, lineHeight: 12 },
+  slotRemoveBtn: { borderWidth: 1, borderColor: C.dimmer, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 3 },
+  slotRemoveText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 8 },
+  slotEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 12, width: '100%', borderWidth: 1, borderColor: C.dimmer, borderStyle: 'dashed', borderRadius: 4 },
+  slotEmptyText: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, letterSpacing: 1 },
+
+  // Gear inventory (BOARD tab)
+  gearItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, marginBottom: 4, overflow: 'hidden' },
+  gearItemAccent: { width: 3, alignSelf: 'stretch' },
   gearName: { fontFamily: FONT_MONO, fontSize: 12, fontWeight: '700' },
   gearStats: { color: C.dim, fontSize: 9, marginTop: 2 },
-  gearUnequip: { borderWidth: 1, borderColor: C.dim, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 },
-  gearUnequipText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9 },
-  gearItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, marginBottom: 4, gap: 10, overflow: 'hidden' },
-  gearItemAccent: { width: 3, alignSelf: 'stretch' },
-  gearEquip: { borderWidth: 1, borderColor: C.cyan, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 4, marginRight: 4 },
-  gearEquipText: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 9, fontWeight: '700' },
-  gearScrap: { borderWidth: 1, borderColor: C.redDark, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 4, marginRight: 8 },
+  rarityTag: { borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 3, fontSize: 7, fontFamily: FONT_MONO },
+  typeTag: { fontFamily: FONT_MONO, color: C.dim, fontSize: 7, letterSpacing: 1 },
+  installBtn: { borderWidth: 1, borderColor: C.cyan, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 4 },
+  installBtnText: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 9, fontWeight: '700' },
+  gearScrap: { borderWidth: 1, borderColor: C.redDark, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 4 },
   gearScrapText: { fontFamily: FONT_MONO, color: C.red, fontSize: 9, fontWeight: '700' },
   emptyMsg: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 10, textAlign: 'center', paddingVertical: 16 },
 
@@ -890,23 +1159,43 @@ const sx = StyleSheet.create({
   claimBtn: { backgroundColor: C.green, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6, alignSelf: 'center', marginLeft: 8 },
   claimText: { fontFamily: FONT_MONO, color: C.bg, fontSize: 10, fontWeight: '900' },
 
-  // Prestige
-  prestigePanel: { backgroundColor: C.surface2, borderRadius: 12, borderWidth: 1, borderColor: C.borderGlow, padding: 24, alignItems: 'center', margin: 8 },
-  prestigeTitle: { fontFamily: FONT_MONO, color: C.dim, fontSize: 10, letterSpacing: 3, marginBottom: 16 },
-  prestigeCores: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 52, fontWeight: '900' },
-  prestigeCoresLabel: { fontFamily: FONT_MONO, color: C.cyanDark, fontSize: 11, letterSpacing: 3, marginTop: -4 },
-  prestigeBonus: { color: C.gold, fontSize: 13, marginTop: 8 },
-  prestigeDivider: { width: '100%', height: 1, backgroundColor: C.border, marginVertical: 16 },
-  prestigeReq: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11, marginBottom: 4 },
-  prestigeNote: { color: C.dim, fontSize: 10, textAlign: 'center', marginBottom: 16 },
-  prestigeBtn: { borderWidth: 2, borderColor: C.cyan, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 6, width: '100%', alignItems: 'center' },
-  prestigeBtnText: { fontFamily: FONT_MONO, color: C.cyan, fontWeight: '900', fontSize: 14, letterSpacing: 3 },
+  // Ascend / Prestige (new design)
+  ascendShardBox: { alignItems: 'center', paddingVertical: 24, backgroundColor: C.surface2, borderRadius: 12, borderWidth: 1, borderColor: C.borderGlow, marginBottom: 10 },
+  ascendShardRing: {
+    width: 110, height: 110, borderRadius: 55,
+    borderWidth: 3, borderColor: C.cyan,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.cyan, shadowOpacity: 0.4, shadowRadius: 18, shadowOffset: { width: 0, height: 0 },
+  },
+  ascendShardNum: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 44, fontWeight: '900', lineHeight: 50 },
+  ascendShardLabel: { fontFamily: FONT_MONO, color: C.cyanDark, fontSize: 9, letterSpacing: 3 },
+  ascendBonusLine: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11, textAlign: 'center', marginTop: 8 },
+  ascendHistoryLine: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, textAlign: 'center', marginTop: 3 },
+  ascendBonusMeter: { backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 8 },
+  ascendMeterLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 1 },
+  ascendSummaryCard: { backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.border, padding: 14, marginBottom: 10 },
+  ascendSummaryTitle: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 2, marginBottom: 10 },
+  ascendSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderColor: C.dimmer },
+  ascendSummaryKey: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11 },
+  ascendSummaryVal: { fontFamily: FONT_MONO, color: C.white, fontSize: 11, fontWeight: '700' },
+  ascendReqRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 12 },
+  ascendReqLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 2 },
+  ascendReqVal: { fontFamily: FONT_MONO, fontSize: 11, fontWeight: '700' },
+  ascendBtn: { borderWidth: 2, paddingVertical: 16, borderRadius: 8, width: '100%', alignItems: 'center', marginBottom: 10 },
+  ascendBtnActive: { borderColor: C.gold, backgroundColor: 'rgba(245,197,24,0.08)' },
+  ascendBtnLocked: { borderColor: C.dimmer, backgroundColor: 'transparent' },
+  ascendBtnText: { fontFamily: FONT_MONO, color: C.gold, fontWeight: '900', fontSize: 15, letterSpacing: 3 },
+  ascendFootnote: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, textAlign: 'center' },
 
   // Skill tree
   skillHeader: { alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 4 },
   skillPoints: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 40, fontWeight: '900' },
   skillPointsLabel: { fontFamily: FONT_MONO, color: C.cyanDark, fontSize: 9, letterSpacing: 2 },
   skillNote: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, textAlign: 'center', marginBottom: 8 },
+  pathLockWarning: { backgroundColor: '#1a0e00', borderRadius: 6, borderWidth: 1, borderColor: C.orange, padding: 10, marginBottom: 8 },
+  pathLockText: { fontFamily: FONT_MONO, color: C.orange, fontSize: 9, textAlign: 'center', letterSpacing: 0.5 },
+  pathLockBadge: { borderWidth: 1, borderRadius: 6, padding: 8, alignItems: 'center', marginBottom: 8 },
+  pathLockBadgeText: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '700', letterSpacing: 2 },
   skillBranch: { marginBottom: 10 },
   skillBranchHeader: { borderLeftWidth: 3, paddingLeft: 10, marginBottom: 6, marginTop: 4 },
   skillBranchTitle: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '700', letterSpacing: 2 },
@@ -916,6 +1205,9 @@ const sx = StyleSheet.create({
   skillDesc: { color: C.dim, fontSize: 9, marginTop: 2 },
   skillUnlockBtn: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 4 },
   skillUnlockText: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '900' },
+  lockedPaths: { gap: 6, marginTop: 8 },
+  lockedPathRow: { borderWidth: 1, borderRadius: 6, padding: 10, alignItems: 'center' },
+  lockedPathText: { fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 2 },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 24 },

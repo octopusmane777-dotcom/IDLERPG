@@ -8,16 +8,16 @@ interface NodeDef {
   id: string;
   name: string;
   description: string;
-  baseRate: number; // gold/sec per unit
+  baseRate: number; // DPS per unit
   baseCost: number;
 }
 
 export const NETWORK_NODES: NodeDef[] = [
-  { id: 'bot_farm',       name: 'Bot Farm',        description: '+0.5 CPU/s each',  baseRate: 0.5,   baseCost: 50 },
-  { id: 'scraper',        name: 'Data Scraper',     description: '+3 CPU/s each',    baseRate: 3,     baseCost: 500 },
-  { id: 'proxy_cluster',  name: 'Proxy Cluster',    description: '+15 CPU/s each',   baseRate: 15,    baseCost: 3000 },
-  { id: 'ai_server',      name: 'AI Server',        description: '+75 CPU/s each',   baseRate: 75,    baseCost: 20000 },
-  { id: 'quantum_core',   name: 'Quantum Core',     description: '+400 CPU/s each',  baseRate: 400,   baseCost: 150000 },
+  { id: 'bot_farm',      name: 'Bot Farm',       description: '+0.5 DPS each',   baseRate: 0.5,   baseCost: 50 },
+  { id: 'scraper',       name: 'Data Scraper',    description: '+3 DPS each',     baseRate: 3,     baseCost: 500 },
+  { id: 'proxy_cluster', name: 'Proxy Cluster',   description: '+15 DPS each',    baseRate: 15,    baseCost: 3000 },
+  { id: 'ai_server',     name: 'AI Server',       description: '+75 DPS each',    baseRate: 75,    baseCost: 20000 },
+  { id: 'quantum_core',  name: 'Quantum Core',    description: '+400 DPS each',   baseRate: 400,   baseCost: 150000 },
 ];
 
 function nodeCost(def: NodeDef, owned: number): number {
@@ -41,15 +41,48 @@ export class NetworkPlugin implements EnginePlugin {
     if (!nState) return;
 
     const ownedNodes = nState.nodes || {};
-    let totalRate = 0;
+    let totalDps = 0;
     for (const n of NETWORK_NODES) {
-      totalRate += (ownedNodes[n.id] || 0) * n.baseRate;
+      totalDps += (ownedNodes[n.id] || 0) * n.baseRate;
     }
-    if (totalRate <= 0) return;
+    if (totalDps <= 0) return;
 
-    return {
-      resources: { ...state.resources, gold: (state.resources.gold || 0) + totalRate * deltaSec },
+    // Apply DPS as damage to the current monster (feeds into adaptive pipeline)
+    const adaptiveState = state.pluginState?.adaptive;
+    if (!adaptiveState) return;
+
+    const damage = totalDps * deltaSec;
+    const hp = Math.max(0, (adaptiveState.monsterHp ?? 0) - damage);
+    let newLevel = state.level;
+    let goldGained = 0;
+    let newMaxHp = adaptiveState.monsterMaxHp ?? 10;
+    let newDefeated = adaptiveState.monstersDefeated ?? 0;
+
+    if (hp <= 0 && (adaptiveState.monsterHp ?? 0) > 0) {
+      newDefeated += 1;
+      newLevel = state.level + 1;
+      newMaxHp = Math.round(10 * Math.pow(1.2, newLevel));
+      goldGained = 10 + 8 * newLevel;
+      if (newLevel % 25 === 0) goldGained += 50 * newLevel;
+    }
+
+    const result: any = {
+      pluginState: {
+        adaptive: {
+          ...adaptiveState,
+          monsterHp: hp <= 0 ? newMaxHp : hp,
+          monsterMaxHp: newMaxHp,
+          monstersDefeated: newDefeated,
+        },
+      },
     };
+
+    if (newLevel !== state.level) result.level = newLevel;
+    if (goldGained > 0) {
+      result.resources = { ...state.resources, gold: (state.resources.gold || 0) + goldGained };
+    }
+
+    return result;
   }
 
   getActionMetadata(state: GameState): Record<string, any> | undefined {
