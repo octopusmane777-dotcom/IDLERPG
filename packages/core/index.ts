@@ -18,6 +18,8 @@ export * from './StatsPlugin';
 export * from './EventPlugin';
 export * from './LeaderboardPlugin';
 export * from './ReturnPlugin';
+export * from './MarketPlugin';
+export * from './IAPPlugin';
 export * from './LocalDataRepository';
 export * from './PersistenceManager';
 export * from './RemoteDataRepository';

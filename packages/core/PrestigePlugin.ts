@@ -11,6 +11,15 @@ export interface PrestigePluginState {
 
 const BONUS_PER_CORE = 0.05; // +5% gold/sec per core
 
+/**
+ * Calculates bonus shards for ascending above the minimum required stage.
+ * Every 10 stages above minimum = +1 extra shard.
+ */
+export function calcBonusShards(currentStage: number, requiredLevel: number): number {
+  if (currentStage <= requiredLevel) return 0;
+  return Math.floor((currentStage - requiredLevel) / 10);
+}
+
 export class PrestigePlugin implements EnginePlugin {
   id = 'prestige';
 
@@ -68,6 +77,7 @@ export class PrestigePlugin implements EnginePlugin {
 
     const requiredLevel = this.getRequiredLevel(state);
     const canPrestige = state.level >= requiredLevel;
+    const bonusShards = calcBonusShards(state.level, requiredLevel);
 
     return {
       prestige: {
@@ -76,7 +86,9 @@ export class PrestigePlugin implements EnginePlugin {
         bonusMultiplier: pState.bonusMultiplier,
         requiredLevel,
         canPrestige,
-        nextBonus: 1 + (pState.cores + 1) * BONUS_PER_CORE,
+        bonusShards,
+        shardsToGain: 1 + bonusShards,
+        nextBonus: 1 + (pState.cores + 1 + bonusShards) * BONUS_PER_CORE,
       },
     };
   }
@@ -90,8 +102,9 @@ export class PrestigePlugin implements EnginePlugin {
     const requiredLevel = this.getRequiredLevel(state);
     if (state.level < requiredLevel) return;
 
-    // Reset progression, grant core
-    const newCores = pState.cores + 1;
+    // Reset progression, grant core(s) — bonus shards for ascending above minimum
+    const bonusShards = calcBonusShards(state.level, requiredLevel);
+    const newCores = pState.cores + 1 + bonusShards;
     const newMultiplier = 1 + newCores * BONUS_PER_CORE;
 
     // Start by preserving ALL existing plugin state, then override only what resets

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   StyleSheet, Text, View, Pressable, Animated, ScrollView,
-  Dimensions, Modal, StatusBar, Platform, PanResponder,
+  Dimensions, Modal, StatusBar, Platform, PanResponder, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from '@idlerpg/ui';
@@ -19,9 +19,9 @@ import { ComboPlugin } from '@idlerpg/core/ComboPlugin';
 import { MissionPlugin } from '@idlerpg/core/MissionPlugin';
 import { BossPlugin } from '@idlerpg/core/BossPlugin';
 import { SkillTreePlugin } from '@idlerpg/core/SkillTreePlugin';
-import { LocalDataRepository } from '@idlerpg/core/LocalDataRepository';
+import { MarketPlugin } from '@idlerpg/core/MarketPlugin';
+import { IAPPlugin } from '@idlerpg/core/IAPPlugin';
 import { FirebaseDataRepository } from '@idlerpg/core/FirebaseDataRepository';
-import { CompositeRepository } from '@idlerpg/core/CompositeRepository';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -41,6 +41,10 @@ const C = {
   green:     '#00e676',
   greenDark: '#006633',
   orange:    '#ff6b35',
+  teal:      '#00b4a0',
+  tealDark:  '#005048',
+  amber:     '#ffab00',
+  amberDark: '#7a5000',
   white:     '#f0f4ff',
   dim:       '#5a6a8a',
   dimmer:    '#2a3550',
@@ -48,26 +52,15 @@ const C = {
 
 const FONT_MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' });
 
-// ── storage / engine ─────────────────────────────────────────────────────────
-const storageAdapter = {
-  getItem: async (key: string) => {
-    try { return await AsyncStorage.getItem(key); } catch {}
-    try { if (typeof window !== 'undefined' && window.localStorage) return window.localStorage.getItem(key); } catch {}
-    return null;
-  },
-  setItem: async (key: string, value: string) => {
-    try { await AsyncStorage.setItem(key, value); return; } catch {}
-    try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.setItem(key, value); } catch {}
-  },
-};
-
+// ── Firebase config ──────────────────────────────────────────────────────────
 const FIREBASE_CONFIG = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? 'AIzaSyBt1pzhfxNLC50ovmCEkDfVI8h5DUnYWzo',
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'idlerpg-c6965.firebaseapp.com',
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'idlerpg-c6965',
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'idlerpg-c6965.firebasestorage.app',
+  apiKey:            process.env.EXPO_PUBLIC_FIREBASE_API_KEY            ?? 'AIzaSyBt1pzhfxNLC50ovmCEkDfVI8h5DUnYWzo',
+  authDomain:        process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN        ?? 'idlerpg-c6965.firebaseapp.com',
+  projectId:         process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID         ?? 'idlerpg-c6965',
+  storageBucket:     process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET     ?? 'idlerpg-c6965.firebasestorage.app',
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '411288748979',
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '1:411288748979:web:adccfed810faa93c1041c6',
+  appId:             process.env.EXPO_PUBLIC_FIREBASE_APP_ID             ?? '1:411288748979:web:bf4c689b310629b71041c6',
+  measurementId:     process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID     ?? 'G-15YY5FVT5M',
 };
 
 let _firebaseApp: any = null;
@@ -87,7 +80,6 @@ async function initFirebase() {
         persistence: getReactNativePersistence(AsyncStorage),
       });
     } catch {
-      // Already initialized — retrieve existing instance
       _firebaseAuth = getAuth(_firebaseApp);
     }
   } catch (e) {
@@ -95,9 +87,7 @@ async function initFirebase() {
   }
 }
 
-const localRepo = new LocalDataRepository(storageAdapter);
 const firebaseRepo = new FirebaseDataRepository({ firestore: null });
-const repository = new CompositeRepository([localRepo, firebaseRepo]);
 
 const engine = new GameEngine({
   plugins: [
@@ -105,9 +95,9 @@ const engine = new GameEngine({
     new EnergyPlugin(), new EquipmentPlugin(), new AchievementPlugin(),
     new OnboardingPlugin(), new AnalyticsPlugin(),
     new NetworkPlugin(), new ComboPlugin(), new MissionPlugin(),
-    new BossPlugin(), new SkillTreePlugin(),
+    new BossPlugin(), new SkillTreePlugin(), new MarketPlugin(), new IAPPlugin(),
   ],
-  repo: repository,
+  repo: { saveGame: async () => {}, loadGame: async () => null },
   userId: 'player',
 });
 
@@ -143,8 +133,6 @@ interface DamageNum {
 }
 let dmgId = 0;
 
-// ── subcomponents ─────────────────────────────────────────────────────────────
-
 function HexBar({ current, max, color, height = 8 }: { current: number; max: number; color: string; height?: number }) {
   const pct = max > 0 ? Math.max(0, Math.min(1, current / max)) : 0;
   return (
@@ -163,7 +151,7 @@ function StatChip({ label, value, color = C.cyan }: { label: string; value: stri
   );
 }
 
-type TabId = 'combat' | 'network' | 'energy' | 'board' | 'missions' | 'prestige' | 'skilltree';
+type TabId = 'combat' | 'network' | 'energy' | 'board' | 'missions' | 'prestige' | 'skilltree' | 'market';
 const TABS: { id: TabId; label: string }[] = [
   { id: 'combat',    label: 'HACK' },
   { id: 'network',   label: 'NET' },
@@ -172,7 +160,39 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'missions',  label: 'OPS' },
   { id: 'prestige',  label: 'ASCEND' },
   { id: 'skilltree', label: 'TREE' },
+  { id: 'market',    label: 'MARKET' },
 ];
+
+// ── Login Screen ──────────────────────────────────────────────────────────────
+function LoginScreen({ onSignIn, loading }: { onSignIn: () => void; loading: boolean }) {
+  return (
+    <View style={sx.loginRoot}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <View style={sx.loginCard}>
+        <Text style={sx.loginTitle}>IDLE</Text>
+        <Text style={sx.loginSubtitle}>RPG</Text>
+        <View style={sx.loginDivider} />
+        <Text style={sx.loginTagline}>SIGN IN TO PLAY</Text>
+        <Text style={sx.loginDesc}>
+          Your progress is saved to the cloud and tied to your Google account.
+        </Text>
+        <Pressable
+          style={[sx.loginBtn, loading && { opacity: 0.5 }]}
+          onPress={onSignIn}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in with Google"
+        >
+          {loading ? (
+            <ActivityIndicator color={C.bg} size="small" />
+          ) : (
+            <Text style={sx.loginBtnText}>SIGN IN WITH GOOGLE</Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function App() {
@@ -182,13 +202,14 @@ export default function App() {
   const [tab, setTab] = useState<TabId>('combat');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authUser, setAuthUser] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true); // true while checking initial auth state
   const tapScale = useRef(new Animated.Value(1)).current;
   const attackGlow = useRef(new Animated.Value(0)).current;
+  const prevCores = useRef<number>(0);
   const prevState = useRef(state);
   const prestigePulse = useRef(new Animated.Value(1)).current;
+  const engineStarted = useRef(false);
 
-  // Swipe-up drawer
   const DRAWER_COLLAPSED = 72;
   const DRAWER_EXPANDED = Math.round(SCREEN_H * 0.85);
   const drawerAnim = useRef(new Animated.Value(DRAWER_COLLAPSED)).current;
@@ -196,13 +217,11 @@ export default function App() {
   const drawerOpenRef = useRef(false);
 
   const openDrawer = () => {
-    drawerOpenRef.current = true;
-    setDrawerOpen(true);
+    drawerOpenRef.current = true; setDrawerOpen(true);
     Animated.spring(drawerAnim, { toValue: DRAWER_EXPANDED, useNativeDriver: false, tension: 60, friction: 12 }).start();
   };
   const closeDrawer = () => {
-    drawerOpenRef.current = false;
-    setDrawerOpen(false);
+    drawerOpenRef.current = false; setDrawerOpen(false);
     Animated.spring(drawerAnim, { toValue: DRAWER_COLLAPSED, useNativeDriver: false, tension: 60, friction: 12 }).start();
   };
   const toggleDrawer = () => drawerOpenRef.current ? closeDrawer() : openDrawer();
@@ -210,18 +229,12 @@ export default function App() {
   const panResponder = useRef(PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 8,
     onPanResponderMove: (_, g) => {
-      if (drawerOpenRef.current && g.dy > 0) {
-        drawerAnim.setValue(Math.max(DRAWER_COLLAPSED, DRAWER_EXPANDED - g.dy));
-      } else if (!drawerOpenRef.current && g.dy < 0) {
-        drawerAnim.setValue(Math.min(DRAWER_EXPANDED, DRAWER_COLLAPSED - g.dy));
-      }
+      if (drawerOpenRef.current && g.dy > 0) drawerAnim.setValue(Math.max(DRAWER_COLLAPSED, DRAWER_EXPANDED - g.dy));
+      else if (!drawerOpenRef.current && g.dy < 0) drawerAnim.setValue(Math.min(DRAWER_EXPANDED, DRAWER_COLLAPSED - g.dy));
     },
     onPanResponderRelease: (_, g) => {
-      if (drawerOpenRef.current) {
-        g.dy > 60 ? closeDrawer() : openDrawer();
-      } else {
-        g.dy < -40 ? openDrawer() : closeDrawer();
-      }
+      if (drawerOpenRef.current) { g.dy > 60 ? closeDrawer() : openDrawer(); }
+      else { g.dy < -40 ? openDrawer() : closeDrawer(); }
     },
   })).current;
 
@@ -236,79 +249,57 @@ export default function App() {
     });
   };
 
+  // ── Initial Firebase + auth setup ──────────────────────────────────────────
   useEffect(() => {
+    let unsub: (() => void) | undefined;
     const init = async () => {
       await initFirebase();
       if (_firestore && _firebaseAuth) {
         (firebaseRepo as any).firestore = _firestore;
         (firebaseRepo as any).auth = _firebaseAuth;
       }
-      const unsubAuth = firebaseRepo.onAuthStateChange((user: any) => {
+      // Listen to auth state — this fires once immediately with current user (or null)
+      unsub = firebaseRepo.onAuthStateChange((user: any) => {
         setAuthUser(user ?? null);
-      });
-      const saved = await repository.loadGame('player');
-      if (saved?.state) engine.loadSavedState(saved.state);
-      else engine.initializePlugins();
-      setState(engine.getState());
-      engine.start();
-      return unsubAuth;
-    };
-    let cleanup: (() => void) | undefined;
-    init().then(fn => { cleanup = fn; });
-    const unsub = engine.subscribe(setState);
-    return () => { unsub(); cleanup?.(); };
-  }, []);
-
-  const handleGoogleSignIn = async () => {
-    setAuthLoading(true);
-    try {
-      const GoogleSignin = await import('@react-native-google-signin/google-signin').then(m => m.GoogleSignin).catch(() => null);
-      if (GoogleSignin) {
-        GoogleSignin.configure({ webClientId: '411288748979-web.apps.googleusercontent.com' });
-        await GoogleSignin.hasPlayServices();
-        const userInfo = await GoogleSignin.signIn();
-        const idToken = userInfo.data?.idToken ?? (userInfo as any).idToken;
-        if (idToken) {
-          const user = await firebaseRepo.signInWithGoogleCredential(idToken);
-          if (user) {
+        setAuthLoading(false);
+        if (user && !engineStarted.current) {
+          // User is already signed in from a previous session — load their save
+          (async () => {
             const cloudSave = await firebaseRepo.loadGame(user.uid);
             if (cloudSave?.state) {
               engine.loadSavedState(cloudSave.state);
-              engine.start();
-              showMessage('Cloud save loaded!');
             } else {
-              showMessage(`Signed in as ${user.displayName ?? user.email}`);
+              engine.initializePlugins();
             }
-          }
-        }
-      } else {
-        const user = await firebaseRepo.signInWithGoogle();
-        if (user) {
-          const cloudSave = await firebaseRepo.loadGame(user.uid);
-          if (cloudSave?.state) {
-            engine.loadSavedState(cloudSave.state);
+            setState(engine.getState());
             engine.start();
-            showMessage('Cloud save loaded!');
-          } else {
-            showMessage(`Signed in as ${user.displayName ?? user.email}`);
-          }
+            engineStarted.current = true;
+          })();
         }
-      }
-    } catch (e: any) {
-      showMessage('Sign-in failed');
+      });
+    };
+    const unsub2 = engine.subscribe(setState);
+    init();
+    return () => { unsub2(); unsub?.(); };
+  }, []);
+
+  // ── Auto-save on ascend (when cores increase) ──────────────────────────────
+  useEffect(() => {
+    const cores = state.pluginState?.prestige?.cores ?? 0;
+    if (cores > prevCores.current && engineStarted.current && authUser) {
+      prevCores.current = cores;
+      (async () => {
+        try {
+          await firebaseRepo.saveGame({ userId: authUser.uid, state: engine.getState(), updatedAt: Date.now() });
+          showMessage('Ascension saved to cloud!');
+        } catch { /* offline — silent */ }
+      })();
+    } else if (cores !== prevCores.current) {
+      prevCores.current = cores;
     }
-    setAuthLoading(false);
-  };
+  }, [state.pluginState?.prestige?.cores]);
 
-  const handleSignOut = async () => {
-    await firebaseRepo.signOut();
-    try {
-      const GoogleSignin = await import('@react-native-google-signin/google-signin').then(m => m.GoogleSignin).catch(() => null);
-      if (GoogleSignin) await GoogleSignin.signOut();
-    } catch {}
-    showMessage('Signed out — progress saved locally');
-  };
-
+  // ── Kill/level notification ────────────────────────────────────────────────
   useEffect(() => {
     const prev = prevState.current;
     if (state.level > prev.level) {
@@ -319,7 +310,7 @@ export default function App() {
     prevState.current = state;
   }, [state]);
 
-  // Pulse prestige button when available
+  // ── Prestige button pulse ──────────────────────────────────────────────────
   useEffect(() => {
     const meta = engine.getUpgradeMetadata();
     const p = meta.plugins['prestige']?.prestige;
@@ -331,10 +322,54 @@ export default function App() {
         ])
       ).start();
     } else {
-      prestigePulse.stopAnimation();
-      prestigePulse.setValue(1);
+      prestigePulse.stopAnimation(); prestigePulse.setValue(1);
     }
   }, [state.level]);
+
+  const handleGoogleSignIn = async () => {
+    setAuthLoading(true);
+    try {
+      const GoogleSignin = await import('@react-native-google-signin/google-signin').then(m => m.GoogleSignin).catch(() => null);
+      let user: any = null;
+      if (GoogleSignin) {
+        GoogleSignin.configure({ webClientId: '411288748979-web.apps.googleusercontent.com' });
+        await GoogleSignin.hasPlayServices();
+        const userInfo = await GoogleSignin.signIn();
+        const idToken = userInfo.data?.idToken ?? (userInfo as any).idToken;
+        if (idToken) user = await firebaseRepo.signInWithGoogleCredential(idToken);
+      } else {
+        user = await firebaseRepo.signInWithGoogle();
+      }
+      if (user) {
+        const cloudSave = await firebaseRepo.loadGame(user.uid);
+        if (cloudSave?.state) {
+          engine.loadSavedState(cloudSave.state);
+          showMessage('Cloud save loaded!');
+        } else {
+          engine.initializePlugins();
+          showMessage(`Welcome, ${user.displayName ?? user.email}!`);
+        }
+        setState(engine.getState());
+        if (!engineStarted.current) { engine.start(); engineStarted.current = true; }
+        setAuthUser(user);
+      }
+    } catch (e: any) {
+      showMessage('Sign-in failed. Please try again.');
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    engine.stop?.();
+    engineStarted.current = false;
+    await firebaseRepo.signOut();
+    try {
+      const GoogleSignin = await import('@react-native-google-signin/google-signin').then(m => m.GoogleSignin).catch(() => null);
+      if (GoogleSignin) await GoogleSignin.signOut();
+    } catch {}
+    setAuthUser(null);
+    showMessage('Signed out');
+  };
 
   const triggerHaptic = async (type: string) => {
     try {
@@ -351,8 +386,6 @@ export default function App() {
     const s = engine.getState();
     const adaptState = s.pluginState.adaptive;
     const eq = s.pluginState?.equipment;
-
-    // Compute real effective damage (mirrors AdaptiveModule logic)
     const baseTap = adaptState?.tapDamage ?? 1;
     let gearTap = 0;
     if (eq) {
@@ -395,6 +428,27 @@ export default function App() {
     ]).start();
   };
 
+  // ── Show login screen if not authenticated ─────────────────────────────────
+  if (authLoading) {
+    return (
+      <View style={[sx.loginRoot, { justifyContent: 'center', alignItems: 'center' }]}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <ActivityIndicator color={C.cyan} size="large" />
+        <Text style={[sx.loginTagline, { marginTop: 16 }]}>LOADING...</Text>
+      </View>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <>
+        <LoginScreen onSignIn={handleGoogleSignIn} loading={authLoading} />
+        <ToastComponent />
+      </>
+    );
+  }
+
+  // ── Authenticated game UI ──────────────────────────────────────────────────
   const meta = engine.getUpgradeMetadata();
   const gold = state.resources?.gold ?? 0;
   const a = state.pluginState.adaptive;
@@ -415,12 +469,14 @@ export default function App() {
   const energy = meta.plugins['energy']?.energy;
   const equipment = meta.plugins['equipment']?.equipment;
   const achievements = meta.plugins['achievements']?.achievements;
+  const market = meta.plugins['market']?.market;
   const canUpgradeTap = gold >= (meta.plugins['adaptive']?.upgrade?.cost ?? 0);
   const { name: stageName, icon: stageIcon, threat } = stageInfo(state.level);
   const threatCol = threatColor(threat);
   const glowColor = attackGlow.interpolate({ inputRange: [0, 1], outputRange: [C.surface2, C.redDark] });
-
   const onboarding = meta.plugins['onboarding']?.onboarding;
+  const matter = missions?.matter ?? 0;
+  const antimatter = meta.plugins['iap']?.iap?.antimatter ?? 0;
 
   return (
     <View style={sx.root}>
@@ -438,6 +494,17 @@ export default function App() {
         <View style={sx.hudCenter}>
           <Text style={[sx.threatBadge, { color: threatCol, borderColor: threatCol }]}>{threat}</Text>
           <Text style={sx.stageLabel}>{stageName}</Text>
+          {/* MATTER & ANTIMATTER mini badges */}
+          <View style={sx.hudCurrencyRow}>
+            <View style={[sx.miniCurrencyBadge, { borderColor: C.teal }]}>
+              <Text style={[sx.miniCurrencyText, { color: C.teal }]}>{fmt(matter)} MTR</Text>
+            </View>
+            {antimatter > 0 && (
+              <View style={[sx.miniCurrencyBadge, { borderColor: C.amber }]}>
+                <Text style={[sx.miniCurrencyText, { color: C.amber }]}>{fmt(antimatter)} AM</Text>
+              </View>
+            )}
+          </View>
         </View>
         <View style={sx.hudRight}>
           <Text style={sx.hudLabel}>STAGE</Text>
@@ -488,9 +555,7 @@ export default function App() {
                 {boss.bossTimer.toFixed(0)}s
               </Text>
               <Text style={sx.bossAttempt}>
-                {boss.bossAttempts < 2
-                  ? `Attempt ${boss.bossAttempts + 1}/3`
-                  : 'FINAL ATTEMPT'}
+                {boss.bossAttempts < 2 ? `Attempt ${boss.bossAttempts + 1}/3` : 'FINAL ATTEMPT'}
               </Text>
             </View>
           </View>
@@ -503,15 +568,12 @@ export default function App() {
       <View style={sx.dmgOverlay} pointerEvents="none">
         {dmgNums.map(d => (
           <Animated.Text key={d.id} style={[sx.dmgNum, {
-            color: d.color,
-            opacity: d.anim,
+            color: d.color, opacity: d.anim,
             transform: [
               { translateX: d.x },
               { translateY: d.anim.interpolate({ inputRange: [0, 1], outputRange: [d.y - 60, d.y] }) },
             ],
-          }]}>
-            {d.text}
-          </Animated.Text>
+          }]}>{d.text}</Animated.Text>
         ))}
       </View>
 
@@ -560,29 +622,24 @@ export default function App() {
         </Pressable>
       </Animated.View>
 
-      {/* ── spell bar (circular) ── */}
+      {/* ── spell bar ── */}
       <View style={sx.spellBar}>
         {(energy?.spells ?? []).map((s: any) => {
           const onCD = s.cooldownRemaining > 0;
           const abbr = s.name.slice(0, 3).toUpperCase();
           return (
             <Pressable key={s.id}
-              style={[sx.spellCircle,
-                { borderColor: s.canCast ? (s.color ?? C.cyan) : C.dimmer },
-                !s.canCast && sx.spellCircleOff,
-                onCD && sx.spellCircleCD,
-              ]}
+              style={[sx.spellCircle, { borderColor: s.canCast ? (s.color ?? C.cyan) : C.dimmer }, !s.canCast && sx.spellCircleOff, onCD && sx.spellCircleCD]}
               onPress={() => {
                 if (!s.canCast) return;
                 triggerHaptic('spell');
                 spawnDmg(`${s.name}!`, s.color ?? C.cyan);
                 engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.id } } });
+                engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: s.id } } });
                 showMessage(`${s.name} activated!`);
               }}
               disabled={!s.canCast}
-              accessibilityRole="button"
-              accessibilityLabel={s.name}
-              accessibilityState={{ disabled: !s.canCast }}
+              accessibilityRole="button" accessibilityLabel={s.name} accessibilityState={{ disabled: !s.canCast }}
             >
               <Text style={[sx.spellCircleAbbr, { color: s.canCast ? (s.color ?? C.cyan) : C.dimmer }]}>{abbr}</Text>
               <Text style={[sx.spellCircleSub, { color: s.canCast && !onCD ? (s.color ?? C.cyan) : C.dim }]}>
@@ -593,33 +650,25 @@ export default function App() {
         })}
       </View>
 
-
       {/* ── swipe-up tab drawer ── */}
       <Animated.View style={[sx.swipeDrawer, { height: drawerAnim }]} {...panResponder.panHandlers}>
-        {/* Handle + current tab label */}
         <Pressable style={sx.drawerHandle} onPress={toggleDrawer} accessibilityRole="button" accessibilityLabel="Toggle navigation drawer">
           <View style={sx.drawerPill} />
           <Text style={sx.drawerCurrentTab}>{TABS.find(t => t.id === tab)?.label ?? ''}</Text>
           <Text style={[sx.drawerChevron, drawerOpen && { transform: [{ rotate: '180deg' }] }]}>▲</Text>
         </Pressable>
 
-        {/* Horizontal tab bar */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={sx.drawerTabBar} contentContainerStyle={sx.drawerTabBarContent}>
           {TABS.map(t => (
-            <Pressable
-              key={t.id}
-              style={[sx.drawerTabPill, tab === t.id && sx.drawerTabPillActive]}
+            <Pressable key={t.id} style={[sx.drawerTabPill, tab === t.id && sx.drawerTabPillActive]}
               onPress={() => { setTab(t.id); if (!drawerOpen) openDrawer(); }}
-              accessibilityRole="button"
-              accessibilityLabel={t.label}
-              accessibilityState={{ selected: tab === t.id }}
+              accessibilityRole="button" accessibilityLabel={t.label} accessibilityState={{ selected: tab === t.id }}
             >
               <Text style={[sx.drawerTabPillText, tab === t.id && sx.drawerTabPillTextActive]}>{t.label}</Text>
             </Pressable>
           ))}
         </ScrollView>
 
-        {/* Tab content */}
         <ScrollView style={sx.drawerContent} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* COMBAT TAB */}
@@ -693,6 +742,7 @@ export default function App() {
                           if (!s.canCast) return;
                           triggerHaptic('spell');
                           engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.id } } });
+                          engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: s.id } } });
                           spawnDmg(`${s.name}!`, s.color ?? C.cyan);
                           showMessage(`${s.name}!`);
                         }}
@@ -711,9 +761,7 @@ export default function App() {
                         }}
                         accessibilityRole="button" accessibilityLabel={`Upgrade ${s.name}`} accessibilityState={{ disabled: !s.canUpgrade }}
                       >
-                        <Text style={[sx.spellUpText, !s.canUpgrade && { color: C.dim }]}>
-                          UPGRADE  {fmt(s.upgradeCost)}
-                        </Text>
+                        <Text style={[sx.spellUpText, !s.canUpgrade && { color: C.dim }]}>UPGRADE  {fmt(s.upgradeCost)}</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -731,9 +779,7 @@ export default function App() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={sx.mbName}>{equipment?.motherboardName ?? 'AXIOM-1 MicroATX'}</Text>
-                  <Text style={sx.mbSlotInfo}>
-                    {equipment?.ramSlotCount ?? 2} RAM · {equipment?.gpuSlotCount ?? 1} GPU
-                  </Text>
+                  <Text style={sx.mbSlotInfo}>{equipment?.ramSlotCount ?? 2} RAM · {equipment?.gpuSlotCount ?? 1} GPU</Text>
                 </View>
                 {!equipment?.maxTier && (
                   <Pressable
@@ -741,19 +787,23 @@ export default function App() {
                     disabled={!equipment?.canUpgradeMotherboard}
                     onPress={() => {
                       engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UPGRADE_MOTHERBOARD' } } });
-                      showMessage(`Motherboard upgraded!`);
+                      showMessage('Motherboard upgraded!');
                     }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Upgrade motherboard"
+                    accessibilityRole="button" accessibilityLabel="Upgrade motherboard"
                     accessibilityState={{ disabled: !equipment?.canUpgradeMotherboard }}
                   >
                     <Text style={[sx.mbUpgradeBtnText, !equipment?.canUpgradeMotherboard && { color: C.dim }]}>
-                      {equipment?.canUpgradeMotherboard ? `UPGRADE  ${fmt(equipment?.nextMotherboardCost ?? 0)}` : `${fmt(equipment?.nextMotherboardCost ?? 0)} NEEDED`}
+                      {equipment?.canUpgradeMotherboard
+                        ? `UPGRADE  ${equipment?.nextMotherboardCost ?? 0} SHARDS`
+                        : `${equipment?.nextMotherboardCost ?? 0} SHARDS NEEDED`}
                     </Text>
                   </Pressable>
                 )}
                 {equipment?.maxTier && <Text style={[sx.mbUpgradeBtnText, { color: C.gold }]}>MAX TIER</Text>}
               </View>
+              <Text style={sx.mbShardNote}>
+                Motherboard upgrades cost Ascend Shards. Current shards: {prestige?.cores ?? 0}
+              </Text>
 
               <SectionHeader title="RAM SLOTS" sub={`${(equipment?.ramSlots ?? []).filter(Boolean).length} / ${equipment?.ramSlotCount ?? 2} installed`} />
               <View style={sx.slotGrid}>
@@ -761,13 +811,8 @@ export default function App() {
                   const itemId = (equipment?.ramSlots ?? [])[i] ?? null;
                   const item = itemId ? (equipment?.inventory ?? []).find((g: any) => g.id === itemId) : null;
                   return (
-                    <SlotCard
-                      key={`ram-${i}`}
-                      slotLabel={`RAM ${i + 1}`}
-                      item={item}
-                      onUninstall={itemId ? () => {
-                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNINSTALL', itemId } } });
-                      } : undefined}
+                    <SlotCard key={`ram-${i}`} slotLabel={`RAM ${i + 1}`} item={item}
+                      onUninstall={itemId ? () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNINSTALL', itemId } } }) : undefined}
                     />
                   );
                 })}
@@ -779,13 +824,8 @@ export default function App() {
                   const itemId = (equipment?.gpuSlots ?? [])[i] ?? null;
                   const item = itemId ? (equipment?.inventory ?? []).find((g: any) => g.id === itemId) : null;
                   return (
-                    <SlotCard
-                      key={`gpu-${i}`}
-                      slotLabel={`GPU ${i + 1}`}
-                      item={item}
-                      onUninstall={itemId ? () => {
-                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNINSTALL', itemId } } });
-                      } : undefined}
+                    <SlotCard key={`gpu-${i}`} slotLabel={`GPU ${i + 1}`} item={item}
+                      onUninstall={itemId ? () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'UNINSTALL', itemId } } }) : undefined}
                     />
                   );
                 })}
@@ -807,44 +847,27 @@ export default function App() {
                   </View>
                   <View style={{ flexDirection: 'column', gap: 4, padding: 8 }}>
                     {g.type === 'ram' && Array.from({ length: equipment?.ramSlotCount ?? 2 }).map((_, i) => {
-                      const slotFilled = (equipment?.ramSlots ?? [])[i];
-                      if (slotFilled) return null;
+                      if ((equipment?.ramSlots ?? [])[i]) return null;
                       return (
                         <Pressable key={i} style={sx.installBtn}
-                          onPress={() => {
-                            engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'INSTALL_RAM', itemId: g.id, slotIndex: i } } });
-                            showMessage(`${g.name} installed in RAM ${i + 1}`);
-                          }}
+                          onPress={() => { engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'INSTALL_RAM', itemId: g.id, slotIndex: i } } }); showMessage(`${g.name} installed in RAM ${i + 1}`); }}
                           accessibilityRole="button" accessibilityLabel={`Install in RAM slot ${i + 1}`}
-                        >
-                          <Text style={sx.installBtnText}>RAM {i + 1}</Text>
-                        </Pressable>
+                        ><Text style={sx.installBtnText}>RAM {i + 1}</Text></Pressable>
                       );
                     })}
                     {g.type === 'gpu' && Array.from({ length: equipment?.gpuSlotCount ?? 1 }).map((_, i) => {
-                      const slotFilled = (equipment?.gpuSlots ?? [])[i];
-                      if (slotFilled) return null;
+                      if ((equipment?.gpuSlots ?? [])[i]) return null;
                       return (
                         <Pressable key={i} style={[sx.installBtn, { borderColor: C.gold }]}
-                          onPress={() => {
-                            engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'INSTALL_GPU', itemId: g.id, slotIndex: i } } });
-                            showMessage(`${g.name} installed in GPU ${i + 1}`);
-                          }}
+                          onPress={() => { engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'INSTALL_GPU', itemId: g.id, slotIndex: i } } }); showMessage(`${g.name} installed in GPU ${i + 1}`); }}
                           accessibilityRole="button" accessibilityLabel={`Install in GPU slot ${i + 1}`}
-                        >
-                          <Text style={[sx.installBtnText, { color: C.gold }]}>GPU {i + 1}</Text>
-                        </Pressable>
+                        ><Text style={[sx.installBtnText, { color: C.gold }]}>GPU {i + 1}</Text></Pressable>
                       );
                     })}
                     <Pressable style={sx.gearScrap}
-                      onPress={() => {
-                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'SCRAP', itemId: g.id } } });
-                        showMessage(`Scrapped for gold`);
-                      }}
+                      onPress={() => { engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'equipment', action: { type: 'SCRAP', itemId: g.id } } }); showMessage('Scrapped for gold'); }}
                       accessibilityRole="button" accessibilityLabel={`Scrap ${g.name}`}
-                    >
-                      <Text style={sx.gearScrapText}>SCRAP</Text>
-                    </Pressable>
+                    ><Text style={sx.gearScrapText}>SCRAP</Text></Pressable>
                   </View>
                 </View>
               ))}
@@ -857,42 +880,43 @@ export default function App() {
           {/* MISSIONS TAB */}
           {tab === 'missions' && (
             <View style={sx.tabContent}>
+              <View style={sx.matterDisplay}>
+                <Text style={sx.matterLabel}>MATTER BALANCE</Text>
+                <Text style={sx.matterValue}>{fmt(matter)}</Text>
+                <Text style={sx.matterSub}>Earned from OPS missions · Spend at MARKET</Text>
+              </View>
               <SectionHeader title="DAILY OPS" sub={missions ? `Resets in ${missions.hoursUntilReset}h` : 'Loading...'} />
               {(!missions || missions.list.length === 0) && (
                 <Text style={sx.emptyMsg}>Missions loading — start attacking to activate tracking.</Text>
               )}
               {(missions?.list ?? []).map((m: any) => (
                 <View key={m.id} style={[sx.missionCard, m.claimed && { opacity: 0.35 }]}>
-                  <View style={[sx.missionAccent, {
-                    backgroundColor: m.claimed ? C.dim : m.completed ? C.green : C.cyanDark,
-                  }]} />
+                  <View style={[sx.missionAccent, { backgroundColor: m.claimed ? C.dim : m.completed ? C.teal : C.cyanDark }]} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[sx.missionName, m.completed && { color: C.green }]}>{m.description}</Text>
+                    <Text style={[sx.missionName, m.completed && { color: C.teal }]}>{m.description}</Text>
                     <View style={sx.missionProgress}>
                       <View style={{ flex: 1, marginRight: 8 }}>
-                        <HexBar current={m.progress} max={m.target} color={m.completed ? C.green : C.cyan} height={4} />
+                        <HexBar current={m.progress} max={m.target} color={m.completed ? C.teal : C.cyan} height={4} />
                       </View>
                       <Text style={sx.missionPct}>{Math.min(100, (m.progress / m.target * 100)).toFixed(0)}%</Text>
                     </View>
-                    <Text style={sx.missionReward}>REWARD: {fmt(m.reward)} CPU</Text>
+                    <Text style={sx.missionReward}>REWARD: {m.reward} MATTER</Text>
                   </View>
                   {m.completed && !m.claimed && (
-                    <Pressable style={sx.claimBtn}
+                    <Pressable style={[sx.claimBtn, { backgroundColor: C.teal }]}
                       onPress={() => {
                         engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'CLAIM_MISSION', missionId: m.id } } });
-                        showMessage(`+${m.reward} CPU claimed!`);
+                        showMessage(`+${m.reward} MATTER claimed!`);
                       }}
-                      accessibilityRole="button" accessibilityLabel={`Claim ${m.reward} CPU`}
-                    >
-                      <Text style={sx.claimText}>CLAIM</Text>
-                    </Pressable>
+                      accessibilityRole="button" accessibilityLabel={`Claim ${m.reward} MATTER`}
+                    ><Text style={sx.claimText}>CLAIM</Text></Pressable>
                   )}
                 </View>
               ))}
             </View>
           )}
 
-          {/* PRESTIGE / ASCEND TAB */}
+          {/* ASCEND TAB */}
           {tab === 'prestige' && (
             <View style={sx.tabContent}>
               <View style={sx.ascendShardBox}>
@@ -932,13 +956,26 @@ export default function App() {
                 </View>
                 <View style={sx.ascendSummaryRow}>
                   <Text style={sx.ascendSummaryKey}>Shards gained</Text>
-                  <Text style={[sx.ascendSummaryVal, { color: C.cyan }]}>+1 shard</Text>
+                  <Text style={[sx.ascendSummaryVal, { color: C.cyan }]}>
+                    +{prestige?.shardsToGain ?? 1} shard{(prestige?.shardsToGain ?? 1) !== 1 ? 's' : ''}
+                    {(prestige?.bonusShards ?? 0) > 0 && (
+                      <Text style={{ color: C.gold }}> (+{prestige.bonusShards} bonus)</Text>
+                    )}
+                  </Text>
                 </View>
                 <View style={sx.ascendSummaryRow}>
                   <Text style={sx.ascendSummaryKey}>Skill point</Text>
                   <Text style={[sx.ascendSummaryVal, { color: C.green }]}>+1 point</Text>
                 </View>
               </View>
+
+              {(prestige?.bonusShards ?? 0) > 0 && (
+                <View style={sx.bonusShardBanner}>
+                  <Text style={sx.bonusShardText}>
+                    BONUS: You are {state.level - (prestige?.requiredLevel ?? 10)} stages above minimum → +{prestige?.bonusShards} extra shards!
+                  </Text>
+                </View>
+              )}
 
               <View style={sx.ascendReqRow}>
                 <Text style={sx.ascendReqLabel}>REQUIREMENT</Text>
@@ -968,6 +1005,7 @@ export default function App() {
 
               <Text style={sx.ascendFootnote}>
                 Ascend Shards are kept between runs and stack permanently.
+                Ascending above the minimum stage grants bonus shards (every 10 extra stages = +1 shard).
               </Text>
             </View>
           )}
@@ -994,9 +1032,7 @@ export default function App() {
                 }]}>
                   <Text style={[sx.pathLockBadgeText, {
                     color: skilltree.chosenPath === 'STRIKER' ? C.red : skilltree.chosenPath === 'PHANTOM' ? C.green : C.gold,
-                  }]}>
-                    PATH LOCKED: {skilltree.chosenPath}
-                  </Text>
+                  }]}>PATH LOCKED: {skilltree.chosenPath}</Text>
                 </View>
               )}
 
@@ -1012,12 +1048,19 @@ export default function App() {
                       <Text style={[sx.skillBranchTitle, { color: branchColor }]}>{branch} BRANCH</Text>
                     </View>
                     {(skilltree?.nodes ?? []).filter((n: any) => n.branch === branch).map((n: any) => (
-                      <View key={n.id} style={[sx.skillNode, n.unlocked && { borderColor: branchColor }, n.locked && { opacity: 0.3 }]}>
+                      <View key={n.id} style={[sx.skillNode, n.unlocked && { borderColor: branchColor }, n.locked && { opacity: 0.3 }, n.id.includes('overkill') && sx.skillNodeOverkill]}>
                         <Text style={[sx.skillDot, { color: n.unlocked ? branchColor : n.available ? C.dim : C.dimmer }]}>
                           {n.unlocked ? '◆' : n.available ? '◇' : '·'}
                         </Text>
                         <View style={{ flex: 1 }}>
-                          <Text style={[sx.skillName, n.unlocked && { color: branchColor }]}>{n.name}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[sx.skillName, n.unlocked && { color: branchColor }]}>{n.name}</Text>
+                            {n.id.includes('overkill') && (
+                              <View style={[sx.overkillTag, { borderColor: branchColor }]}>
+                                <Text style={[sx.overkillTagText, { color: branchColor }]}>OVERKILL</Text>
+                              </View>
+                            )}
+                          </View>
                           <Text style={sx.skillDesc}>{n.description}</Text>
                         </View>
                         {n.available && (
@@ -1027,9 +1070,7 @@ export default function App() {
                               showMessage(`${n.name} unlocked!`);
                             }}
                             accessibilityRole="button" accessibilityLabel={`Unlock ${n.name}`}
-                          >
-                            <Text style={[sx.skillUnlockText, { color: branchColor }]}>1PT</Text>
-                          </Pressable>
+                          ><Text style={[sx.skillUnlockText, { color: branchColor }]}>1PT</Text></Pressable>
                         )}
                       </View>
                     ))}
@@ -1052,6 +1093,84 @@ export default function App() {
             </View>
           )}
 
+          {/* MARKET TAB */}
+          {tab === 'market' && (
+            <View style={sx.tabContent}>
+              <View style={sx.marketBalanceRow}>
+                <View style={[sx.marketBalanceCard, { borderColor: C.teal }]}>
+                  <Text style={[sx.marketBalanceLabel, { color: C.teal }]}>MATTER</Text>
+                  <Text style={[sx.marketBalanceVal, { color: C.teal }]}>{fmt(matter)}</Text>
+                  <Text style={sx.marketBalanceSub}>From OPS missions</Text>
+                </View>
+                <View style={[sx.marketBalanceCard, { borderColor: C.amber }]}>
+                  <Text style={[sx.marketBalanceLabel, { color: C.amber }]}>ANTIMATTER</Text>
+                  <Text style={[sx.marketBalanceVal, { color: C.amber }]}>{fmt(antimatter)}</Text>
+                  <Text style={sx.marketBalanceSub}>Store purchase</Text>
+                </View>
+              </View>
+
+              <SectionHeader title="MATTER UPGRADES" sub="Permanent improvements — earn via OPS" />
+              {(market?.items ?? []).filter((i: any) => i.currency === 'matter').map((item: any) => {
+                const canBuy = matter >= item.cost && (!item.purchased || item.category === 'consumable');
+                return (
+                  <View key={item.id} style={[sx.marketItem, item.purchased && item.category !== 'consumable' && { opacity: 0.5 }]}>
+                    <View style={[sx.marketItemAccent, { backgroundColor: C.teal }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={sx.marketItemName}>{item.name}</Text>
+                      <Text style={sx.marketItemDesc}>{item.description}</Text>
+                    </View>
+                    <Pressable
+                      style={[sx.marketBuyBtn, { borderColor: C.teal }, !canBuy && sx.btnOff]}
+                      disabled={!canBuy}
+                      onPress={() => {
+                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'market', action: { type: 'BUY_MARKET_ITEM', itemId: item.id } } });
+                        showMessage(`${item.name} purchased!`);
+                      }}
+                      accessibilityRole="button" accessibilityLabel={`Buy ${item.name}`}
+                      accessibilityState={{ disabled: !canBuy }}
+                    >
+                      <Text style={[sx.marketBuyText, { color: canBuy ? C.teal : C.dim }]}>
+                        {item.purchased && item.category !== 'consumable' ? 'OWNED' : `${item.cost} MTR`}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+
+              <SectionHeader title="ANTIMATTER STORE" sub="Premium items — purchase in-app" />
+              {(market?.items ?? []).filter((i: any) => i.currency === 'antimatter').map((item: any) => {
+                const canBuy = antimatter >= item.cost && (!item.purchased || item.category === 'consumable');
+                return (
+                  <View key={item.id} style={[sx.marketItem, item.purchased && item.category !== 'consumable' && { opacity: 0.5 }]}>
+                    <View style={[sx.marketItemAccent, { backgroundColor: C.amber }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={sx.marketItemName}>{item.name}</Text>
+                      <Text style={sx.marketItemDesc}>{item.description}</Text>
+                    </View>
+                    <Pressable
+                      style={[sx.marketBuyBtn, { borderColor: C.amber }, !canBuy && sx.btnOff]}
+                      disabled={!canBuy}
+                      onPress={() => {
+                        engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'market', action: { type: 'BUY_MARKET_ITEM', itemId: item.id } } });
+                        showMessage(`${item.name} unlocked!`);
+                      }}
+                      accessibilityRole="button" accessibilityLabel={`Buy ${item.name}`}
+                      accessibilityState={{ disabled: !canBuy }}
+                    >
+                      <Text style={[sx.marketBuyText, { color: canBuy ? C.amber : C.dim }]}>
+                        {item.purchased && item.category !== 'consumable' ? 'OWNED' : `${item.cost} AM`}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+
+              <Text style={sx.marketFootnote}>
+                ANTIMATTER is purchased via the Play Store or App Store. It is never earned through gameplay.
+              </Text>
+            </View>
+          )}
+
         </ScrollView>
       </Animated.View>
 
@@ -1060,33 +1179,26 @@ export default function App() {
         <Pressable style={sx.modalOverlay} onPress={() => setSettingsOpen(false)}>
           <Pressable style={sx.modalCard}>
             <Text style={sx.modalTitle}>SYSTEM</Text>
-
-            {/* Cloud save / auth */}
-            {authUser ? (
-              <View style={sx.authRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={sx.authName}>{authUser.displayName ?? authUser.email}</Text>
-                  <Text style={sx.authSub}>Cloud Save Active</Text>
-                </View>
-                <Pressable style={[sx.modalBtn, { borderColor: C.red, marginTop: 0, flex: 0, paddingHorizontal: 14 }]} onPress={() => { handleSignOut(); setSettingsOpen(false); }}>
-                  <Text style={[sx.modalBtnText, { color: C.red }]}>SIGN OUT</Text>
-                </Pressable>
+            <View style={sx.authRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={sx.authName}>{authUser.displayName ?? authUser.email}</Text>
+                <Text style={sx.authSub}>Cloud Save Active</Text>
               </View>
-            ) : (
               <Pressable
-                style={[sx.modalBtn, { borderColor: C.cyan, opacity: authLoading ? 0.6 : 1 }]}
-                onPress={() => { handleGoogleSignIn(); setSettingsOpen(false); }}
-                disabled={authLoading}
-                accessibilityRole="button"
-                accessibilityLabel="Sign in with Google"
+                style={[sx.modalBtn, { borderColor: C.red, marginTop: 0, flex: 0, paddingHorizontal: 14 }]}
+                onPress={() => { handleSignOut(); setSettingsOpen(false); }}
               >
-                <Text style={[sx.modalBtnText, { color: C.cyan }]}>
-                  {authLoading ? 'SIGNING IN...' : 'SIGN IN WITH GOOGLE'}
-                </Text>
+                <Text style={[sx.modalBtnText, { color: C.red }]}>SIGN OUT</Text>
               </Pressable>
-            )}
-
-            <Pressable style={[sx.modalBtn, { borderColor: C.cyan }]} onPress={async () => { await engine.flushSave(); showMessage('Game saved!'); setSettingsOpen(false); }}>
+            </View>
+            <Pressable style={[sx.modalBtn, { borderColor: C.cyan }]}
+              onPress={async () => {
+                try {
+                  await firebaseRepo.saveGame({ userId: authUser.uid, state: engine.getState(), updatedAt: Date.now() });
+                  showMessage('Game saved!');
+                } catch { showMessage('Save failed — check connection'); }
+                setSettingsOpen(false);
+              }}>
               <Text style={[sx.modalBtnText, { color: C.cyan }]}>MANUAL SAVE</Text>
             </Pressable>
             <Pressable style={sx.modalClose} onPress={() => setSettingsOpen(false)}>
@@ -1130,29 +1242,20 @@ function UpgradeRow({ name, sub, cost, canBuy, onBuy }: {
   );
 }
 
-function SlotCard({ slotLabel, item, onUninstall }: {
-  slotLabel: string;
-  item: any | null;
-  onUninstall?: () => void;
-}) {
+function SlotCard({ slotLabel, item, onUninstall }: { slotLabel: string; item: any | null; onUninstall?: () => void }) {
   return (
     <View style={[sx.slotCard, item && { borderColor: item.color ?? C.dim }]}>
       <Text style={sx.slotLabel}>{slotLabel}</Text>
       {item ? (
         <>
           <Text style={[sx.slotItemName, { color: item.color ?? C.white }]} numberOfLines={1}>{item.name}</Text>
-          <Text style={sx.slotItemStats} numberOfLines={2}>
-            {Object.entries(item.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('\n')}
-          </Text>
-          <Pressable style={sx.slotRemoveBtn} onPress={onUninstall}
-            accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`}>
+          <Text style={sx.slotItemStats} numberOfLines={2}>{Object.entries(item.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('\n')}</Text>
+          <Pressable style={sx.slotRemoveBtn} onPress={onUninstall} accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`}>
             <Text style={sx.slotRemoveText}>REMOVE</Text>
           </Pressable>
         </>
       ) : (
-        <View style={sx.slotEmpty}>
-          <Text style={sx.slotEmptyText}>EMPTY</Text>
-        </View>
+        <View style={sx.slotEmpty}><Text style={sx.slotEmptyText}>EMPTY</Text></View>
       )}
     </View>
   );
@@ -1161,6 +1264,17 @@ function SlotCard({ slotLabel, item, onUninstall }: {
 // ── styles ───────────────────────────────────────────────────────────────────
 const sx = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+
+  // Login
+  loginRoot: { flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  loginCard: { width: '100%', maxWidth: 360, backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.borderGlow, padding: 32, alignItems: 'center' },
+  loginTitle: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 52, fontWeight: '900', letterSpacing: 8, lineHeight: 56 },
+  loginSubtitle: { fontFamily: FONT_MONO, color: C.gold, fontSize: 28, fontWeight: '900', letterSpacing: 12, marginTop: -4 },
+  loginDivider: { width: 60, height: 2, backgroundColor: C.borderGlow, borderRadius: 1, marginVertical: 20 },
+  loginTagline: { fontFamily: FONT_MONO, color: C.dim, fontSize: 10, letterSpacing: 3, marginBottom: 12 },
+  loginDesc: { color: C.dim, fontSize: 11, textAlign: 'center', lineHeight: 18, marginBottom: 24 },
+  loginBtn: { backgroundColor: C.cyan, paddingHorizontal: 28, paddingVertical: 16, borderRadius: 8, width: '100%', alignItems: 'center' },
+  loginBtnText: { fontFamily: FONT_MONO, color: C.bg, fontWeight: '900', fontSize: 13, letterSpacing: 2 },
 
   // HUD
   hud: { flexDirection: 'row', alignItems: 'center', paddingTop: 50, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: C.surface, borderBottomWidth: 1, borderColor: C.border },
@@ -1174,6 +1288,9 @@ const sx = StyleSheet.create({
   threatBadge: { fontFamily: FONT_MONO, fontSize: 9, fontWeight: '700', letterSpacing: 2, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3 },
   stageLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, marginTop: 3, letterSpacing: 1 },
   settingsIcon: { color: C.dim, fontSize: 18, marginTop: 2 },
+  hudCurrencyRow: { flexDirection: 'row', gap: 4, marginTop: 4 },
+  miniCurrencyBadge: { borderWidth: 1, borderRadius: 3, paddingHorizontal: 5, paddingVertical: 2 },
+  miniCurrencyText: { fontFamily: FONT_MONO, fontSize: 8, fontWeight: '700', letterSpacing: 0.5 },
 
   // Tutorial
   tutorialBanner: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: C.surface2, borderBottomWidth: 1, borderColor: C.gold, padding: 12, gap: 12 },
@@ -1210,13 +1327,7 @@ const sx = StyleSheet.create({
   hpText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9 },
   statsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   attackWrap: { marginTop: 14, alignItems: 'center' },
-  attackBtn: {
-    width: 120, height: 120, borderRadius: 60,
-    backgroundColor: C.surface2, borderWidth: 2, borderColor: C.red,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: C.red, shadowOpacity: 0.6, shadowRadius: 20, shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-  },
+  attackBtn: { width: 120, height: 120, borderRadius: 60, backgroundColor: C.surface2, borderWidth: 2, borderColor: C.red, alignItems: 'center', justifyContent: 'center', shadowColor: C.red, shadowOpacity: 0.6, shadowRadius: 20, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
   attackBtnInner: { alignItems: 'center' },
   attackLabel: { fontFamily: FONT_MONO, color: C.red, fontSize: 14, fontWeight: '900', letterSpacing: 3 },
   attackDmg: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11, marginTop: 2 },
@@ -1226,29 +1337,16 @@ const sx = StyleSheet.create({
   chipLabel: { fontFamily: FONT_MONO, fontSize: 8, letterSpacing: 1, marginBottom: 2 },
   chipValue: { fontFamily: FONT_MONO, fontSize: 14, fontWeight: '900' },
 
-  // Spell bar (circular)
+  // Spell bar
   spellBar: { flexDirection: 'row', justifyContent: 'center', gap: 10, paddingHorizontal: 12, marginTop: 10, marginBottom: 6, flexWrap: 'wrap' },
-  spellCircle: {
-    width: 64, height: 64, borderRadius: 32,
-    borderWidth: 2, borderColor: C.cyanDark,
-    backgroundColor: C.surface2,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  spellCircle: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: C.cyanDark, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   spellCircleOff: { opacity: 0.35 },
   spellCircleCD: { borderStyle: 'dashed', opacity: 0.65 },
   spellCircleAbbr: { fontFamily: FONT_MONO, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   spellCircleSub: { fontFamily: FONT_MONO, fontSize: 9, marginTop: 2, color: C.dim },
 
   // Swipe-up drawer
-  swipeDrawer: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: C.surface,
-    borderTopLeftRadius: 16, borderTopRightRadius: 16,
-    borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border,
-    overflow: 'hidden',
-    elevation: 20,
-    shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: -4 },
-  },
+  swipeDrawer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: C.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border, overflow: 'hidden', elevation: 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: -4 } },
   drawerHandle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 52, paddingHorizontal: 20, gap: 10 },
   drawerPill: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.dimmer },
   drawerCurrentTab: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 3, flex: 1, textAlign: 'center' },
@@ -1260,7 +1358,6 @@ const sx = StyleSheet.create({
   drawerTabPillText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   drawerTabPillTextActive: { color: C.cyan },
   drawerContent: { flex: 1 },
-
   tabContent: { padding: 12, gap: 4 },
 
   // Section header
@@ -1292,7 +1389,7 @@ const sx = StyleSheet.create({
   energyLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 2 },
   energyVal: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 13, fontWeight: '700' },
 
-  // BOARD tab — motherboard card
+  // BOARD tab
   mbCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, borderColor: C.borderGlow, padding: 14, gap: 12, marginBottom: 4 },
   mbTierBadge: { backgroundColor: C.cyanDark, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
   mbTierText: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
@@ -1300,6 +1397,7 @@ const sx = StyleSheet.create({
   mbSlotInfo: { color: C.dim, fontSize: 10, marginTop: 2 },
   mbUpgradeBtn: { borderWidth: 1, borderColor: C.cyan, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
   mbUpgradeBtnText: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 10, fontWeight: '700' },
+  mbShardNote: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, textAlign: 'center', marginBottom: 6 },
 
   // Slot grid
   slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
@@ -1312,7 +1410,7 @@ const sx = StyleSheet.create({
   slotEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 12, width: '100%', borderWidth: 1, borderColor: C.dimmer, borderStyle: 'dashed', borderRadius: 4 },
   slotEmptyText: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, letterSpacing: 1 },
 
-  // Gear inventory (BOARD tab)
+  // Gear inventory
   gearItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, marginBottom: 4, overflow: 'hidden' },
   gearItemAccent: { width: 3, alignSelf: 'stretch' },
   gearName: { fontFamily: FONT_MONO, fontSize: 12, fontWeight: '700' },
@@ -1326,23 +1424,22 @@ const sx = StyleSheet.create({
   emptyMsg: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 10, textAlign: 'center', paddingVertical: 16 },
 
   // Missions
+  matterDisplay: { backgroundColor: C.tealDark + '44', borderRadius: 10, borderWidth: 1, borderColor: C.teal, padding: 14, alignItems: 'center', marginBottom: 8 },
+  matterLabel: { fontFamily: FONT_MONO, color: C.teal, fontSize: 9, letterSpacing: 2 },
+  matterValue: { fontFamily: FONT_MONO, color: C.teal, fontSize: 36, fontWeight: '900', lineHeight: 42 },
+  matterSub: { fontFamily: FONT_MONO, color: C.dim, fontSize: 8, marginTop: 2 },
   missionCard: { flexDirection: 'row', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, marginBottom: 6, overflow: 'hidden', padding: 12 },
   missionAccent: { width: 3, borderRadius: 2, marginRight: 10, alignSelf: 'stretch' },
   missionName: { color: C.white, fontSize: 12, fontWeight: '600', marginBottom: 6 },
   missionProgress: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   missionPct: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, width: 32, textAlign: 'right' },
-  missionReward: { fontFamily: FONT_MONO, color: C.goldDark, fontSize: 9, letterSpacing: 1 },
-  claimBtn: { backgroundColor: C.green, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6, alignSelf: 'center', marginLeft: 8 },
+  missionReward: { fontFamily: FONT_MONO, color: C.teal, fontSize: 9, letterSpacing: 1 },
+  claimBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6, alignSelf: 'center', marginLeft: 8 },
   claimText: { fontFamily: FONT_MONO, color: C.bg, fontSize: 10, fontWeight: '900' },
 
-  // Ascend / Prestige (new design)
+  // Ascend
   ascendShardBox: { alignItems: 'center', paddingVertical: 24, backgroundColor: C.surface2, borderRadius: 12, borderWidth: 1, borderColor: C.borderGlow, marginBottom: 10 },
-  ascendShardRing: {
-    width: 110, height: 110, borderRadius: 55,
-    borderWidth: 3, borderColor: C.cyan,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: C.cyan, shadowOpacity: 0.4, shadowRadius: 18, shadowOffset: { width: 0, height: 0 },
-  },
+  ascendShardRing: { width: 110, height: 110, borderRadius: 55, borderWidth: 3, borderColor: C.cyan, alignItems: 'center', justifyContent: 'center', shadowColor: C.cyan, shadowOpacity: 0.4, shadowRadius: 18, shadowOffset: { width: 0, height: 0 } },
   ascendShardNum: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 44, fontWeight: '900', lineHeight: 50 },
   ascendShardLabel: { fontFamily: FONT_MONO, color: C.cyanDark, fontSize: 9, letterSpacing: 3 },
   ascendBonusLine: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11, textAlign: 'center', marginTop: 8 },
@@ -1354,6 +1451,8 @@ const sx = StyleSheet.create({
   ascendSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderColor: C.dimmer },
   ascendSummaryKey: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11 },
   ascendSummaryVal: { fontFamily: FONT_MONO, color: C.white, fontSize: 11, fontWeight: '700' },
+  bonusShardBanner: { backgroundColor: 'rgba(245,197,24,0.08)', borderRadius: 8, borderWidth: 1, borderColor: C.gold, padding: 10, marginBottom: 8 },
+  bonusShardText: { fontFamily: FONT_MONO, color: C.gold, fontSize: 9, textAlign: 'center', letterSpacing: 0.5 },
   ascendReqRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 12 },
   ascendReqLabel: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9, letterSpacing: 2 },
   ascendReqVal: { fontFamily: FONT_MONO, fontSize: 11, fontWeight: '700' },
@@ -1376,14 +1475,31 @@ const sx = StyleSheet.create({
   skillBranchHeader: { borderLeftWidth: 3, paddingLeft: 10, marginBottom: 6, marginTop: 4 },
   skillBranchTitle: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '700', letterSpacing: 2 },
   skillNode: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 6, borderWidth: 1, borderColor: C.border, padding: 10, marginBottom: 4, gap: 8 },
+  skillNodeOverkill: { borderStyle: 'dashed' },
   skillDot: { fontSize: 14, width: 20, textAlign: 'center' },
   skillName: { fontFamily: FONT_MONO, color: C.white, fontSize: 11, fontWeight: '700' },
   skillDesc: { color: C.dim, fontSize: 9, marginTop: 2 },
   skillUnlockBtn: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 4 },
   skillUnlockText: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '900' },
+  overkillTag: { borderWidth: 1, borderRadius: 3, paddingHorizontal: 4, paddingVertical: 2 },
+  overkillTagText: { fontFamily: FONT_MONO, fontSize: 7, fontWeight: '700', letterSpacing: 1 },
   lockedPaths: { gap: 6, marginTop: 8 },
   lockedPathRow: { borderWidth: 1, borderRadius: 6, padding: 10, alignItems: 'center' },
   lockedPathText: { fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 2 },
+
+  // Market
+  marketBalanceRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  marketBalanceCard: { flex: 1, backgroundColor: C.surface2, borderRadius: 10, borderWidth: 1, padding: 12, alignItems: 'center' },
+  marketBalanceLabel: { fontFamily: FONT_MONO, fontSize: 8, fontWeight: '700', letterSpacing: 2, marginBottom: 4 },
+  marketBalanceVal: { fontFamily: FONT_MONO, fontSize: 24, fontWeight: '900' },
+  marketBalanceSub: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 8, marginTop: 2 },
+  marketItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, marginBottom: 6, overflow: 'hidden' },
+  marketItemAccent: { width: 3, alignSelf: 'stretch' },
+  marketItemName: { fontFamily: FONT_MONO, color: C.white, fontSize: 12, fontWeight: '700', marginLeft: 10, marginTop: 10 },
+  marketItemDesc: { color: C.dim, fontSize: 9, marginLeft: 10, marginBottom: 10, marginTop: 2 },
+  marketBuyBtn: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6, margin: 10, alignItems: 'center', minWidth: 80 },
+  marketBuyText: { fontFamily: FONT_MONO, fontSize: 10, fontWeight: '700' },
+  marketFootnote: { fontFamily: FONT_MONO, color: C.dimmer, fontSize: 9, textAlign: 'center', marginTop: 8 },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 24 },

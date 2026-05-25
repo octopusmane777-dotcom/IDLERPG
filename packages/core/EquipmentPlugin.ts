@@ -26,11 +26,18 @@ interface MotherboardTier {
   upgradeCost: number;
 }
 
+/** Motherboard upgrade costs are paid in SHARDS (prestige cores), not gold */
+export const MOTHERBOARD_SHARD_COSTS: Record<number, number> = {
+  2: 3,   // tier 1 → 2
+  3: 8,   // tier 2 → 3
+  4: 20,  // tier 3 → 4
+};
+
 export const MOTHERBOARD_TIERS: MotherboardTier[] = [
   { tier: 1, name: 'AXIOM-1 MicroATX', ramSlots: 2, gpuSlots: 1, upgradeCost: 0 },
-  { tier: 2, name: 'NOVA-7 ATX',       ramSlots: 4, gpuSlots: 2, upgradeCost: 5000 },
-  { tier: 3, name: 'APEX-X EATX',      ramSlots: 6, gpuSlots: 3, upgradeCost: 50000 },
-  { tier: 4, name: 'TITAN-INF XL-ATX', ramSlots: 8, gpuSlots: 4, upgradeCost: 500000 },
+  { tier: 2, name: 'NOVA-7 ATX',       ramSlots: 4, gpuSlots: 2, upgradeCost: 0 },
+  { tier: 3, name: 'APEX-X EATX',      ramSlots: 6, gpuSlots: 3, upgradeCost: 0 },
+  { tier: 4, name: 'TITAN-INF XL-ATX', ramSlots: 8, gpuSlots: 4, upgradeCost: 0 },
 ];
 
 export interface EquipmentPluginState {
@@ -226,7 +233,8 @@ export class EquipmentPlugin implements EnginePlugin {
     const tierDef = MOTHERBOARD_TIERS[tier - 1] ?? MOTHERBOARD_TIERS[0];
     const nextTierDef = MOTHERBOARD_TIERS[tier] ?? null;
     const bonuses = this.getEffectiveBonuses(state);
-    const gold = state.resources.gold || 0;
+    const shards = (state.pluginState?.prestige?.cores as number) ?? 0;
+    const nextShardCost = nextTierDef ? (MOTHERBOARD_SHARD_COSTS[tier + 1] ?? 999) : null;
 
     const inventory = (eState.inventory || []).map(g => ({
       ...g,
@@ -242,12 +250,13 @@ export class EquipmentPlugin implements EnginePlugin {
         gpuSlots: eState.gpuSlots || [],
         ramSlotCount: tierDef.ramSlots,
         gpuSlotCount: tierDef.gpuSlots,
-        canUpgradeMotherboard: nextTierDef !== null && gold >= nextTierDef.upgradeCost,
-        nextMotherboardCost: nextTierDef?.upgradeCost ?? null,
+        canUpgradeMotherboard: nextTierDef !== null && nextShardCost !== null && shards >= nextShardCost,
+        nextMotherboardCost: nextShardCost,
         nextMotherboardName: nextTierDef?.name ?? null,
         maxTier: tier >= MOTHERBOARD_TIERS.length,
         inventory,
         bonuses,
+        upgradeInShards: true,
       },
     };
   }
@@ -313,20 +322,20 @@ export class EquipmentPlugin implements EnginePlugin {
       case 'UPGRADE_MOTHERBOARD': {
         const tier = eState.motherboardTier ?? 1;
         if (tier >= MOTHERBOARD_TIERS.length) return;
-        const nextTierDef = MOTHERBOARD_TIERS[tier];
-        const gold = state.resources.gold || 0;
-        if (gold < nextTierDef.upgradeCost) return;
+        const shardCost = MOTHERBOARD_SHARD_COSTS[tier + 1] ?? 999;
+        const prestigeState = state.pluginState?.prestige;
+        const currentShards = (prestigeState?.cores as number) ?? 0;
+        if (currentShards < shardCost) return;
 
         const newTier = tier + 1;
         const tierDef = MOTHERBOARD_TIERS[newTier - 1];
-        // Expand slot arrays (preserve existing, pad with null)
         const ramSlots = _expandSlots(eState.ramSlots || [], tierDef.ramSlots);
         const gpuSlots = _expandSlots(eState.gpuSlots || [], tierDef.gpuSlots);
 
         return {
-          resources: { ...state.resources, gold: gold - nextTierDef.upgradeCost },
           pluginState: {
             [this.id]: { ...eState, motherboardTier: newTier, ramSlots, gpuSlots },
+            prestige: { ...prestigeState, cores: currentShards - shardCost },
           },
         };
       }

@@ -20,31 +20,34 @@ export interface SkillTreePluginState {
 
 export const SKILL_TREE: SkillNode[] = [
   // STRIKER — tap-focused, touches idle + spell
-  { id: 's1', branch: 'STRIKER', name: 'Precision Strike',  description: '+15% tap dmg, +5% spell mult',               requires: null },
-  { id: 's2', branch: 'STRIKER', name: 'Double Tap',         description: '+20% tap dmg, +5% node output',              requires: 's1' },
-  { id: 's3', branch: 'STRIKER', name: 'Critical Core',      description: '10% crit chance (×3 tap), +10% energy regen',requires: 's2' },
-  { id: 's4', branch: 'STRIKER', name: 'Overclock Array',    description: '+25% tap dmg, -10% spell cooldowns',         requires: 's3' },
-  { id: 's5', branch: 'STRIKER', name: 'Killswitch',         description: 'Boss tap ×2, +20% gold per kill',            requires: 's4' },
-  { id: 's6', branch: 'STRIKER', name: 'Surge Protocol',     description: 'Tap damage also adds to auto DPS',           requires: 's5' },
-  { id: 's7', branch: 'STRIKER', name: 'Overload',           description: 'Every 10th tap deals ×10 damage',            requires: 's6' },
+  { id: 's1',       branch: 'STRIKER', name: 'Precision Strike',  description: '+15% tap dmg, +5% spell mult',               requires: null },
+  { id: 's2',       branch: 'STRIKER', name: 'Double Tap',         description: '+20% tap dmg, +5% node output',              requires: 's1' },
+  { id: 's3',       branch: 'STRIKER', name: 'Critical Core',      description: '10% crit chance (×3 tap), +10% energy regen',requires: 's2' },
+  { id: 's4',       branch: 'STRIKER', name: 'Overclock Array',    description: '+25% tap dmg, -10% spell cooldowns',         requires: 's3' },
+  { id: 's5',       branch: 'STRIKER', name: 'Killswitch',         description: 'Boss tap ×2, +20% gold per kill',            requires: 's4' },
+  { id: 's6',       branch: 'STRIKER', name: 'Surge Protocol',     description: 'Tap damage also adds to auto DPS',           requires: 's5' },
+  { id: 's7',       branch: 'STRIKER', name: 'Overload',           description: 'Every 10th tap deals ×10 damage',            requires: 's6' },
+  { id: 's_overkill', branch: 'STRIKER', name: 'Overkill Cascade', description: 'Excess tap damage carries over to the next monster as a free hit', requires: 's4' },
 
   // PHANTOM — idle-focused, touches tap + spell
-  { id: 'p1', branch: 'PHANTOM', name: 'Ghost Process',      description: '+30% auto DPS, +5% tap dmg',                 requires: null },
-  { id: 'p2', branch: 'PHANTOM', name: 'Background Thread',  description: '+2 auto DPS, +5% spell mult',                requires: 'p1' },
-  { id: 'p3', branch: 'PHANTOM', name: 'Sleep Mode',         description: 'Offline cap 16h, +10% tap dmg',              requires: 'p2' },
-  { id: 'p4', branch: 'PHANTOM', name: 'Daemon Cluster',     description: 'Auto DPS ×1.5 after 10s idle, +1 energy/s',  requires: 'p3' },
-  { id: 'p5', branch: 'PHANTOM', name: 'Persistent Threat',  description: 'Auto DPS scales with stage, +10% spell mult', requires: 'p4' },
-  { id: 'p6', branch: 'PHANTOM', name: 'Dark Harvest',       description: 'Idle kills grant +5% bonus gold',            requires: 'p5' },
-  { id: 'p7', branch: 'PHANTOM', name: 'Phantom Loop',       description: 'Auto-tick fires twice per second at full DPS',requires: 'p6' },
+  { id: 'p1',       branch: 'PHANTOM', name: 'Ghost Process',      description: '+30% auto DPS, +5% tap dmg',                 requires: null },
+  { id: 'p2',       branch: 'PHANTOM', name: 'Background Thread',  description: '+2 auto DPS, +5% spell mult',                requires: 'p1' },
+  { id: 'p3',       branch: 'PHANTOM', name: 'Sleep Mode',         description: 'Offline cap 16h, +10% tap dmg',              requires: 'p2' },
+  { id: 'p4',       branch: 'PHANTOM', name: 'Daemon Cluster',     description: 'Auto DPS ×1.5 after 10s idle, +1 energy/s',  requires: 'p3' },
+  { id: 'p5',       branch: 'PHANTOM', name: 'Persistent Threat',  description: 'Auto DPS scales with stage, +10% spell mult', requires: 'p4' },
+  { id: 'p6',       branch: 'PHANTOM', name: 'Dark Harvest',       description: 'Idle kills grant +5% bonus gold',            requires: 'p5' },
+  { id: 'p7',       branch: 'PHANTOM', name: 'Phantom Loop',       description: 'Auto-tick fires twice per second at full DPS',requires: 'p6' },
+  { id: 'p_overkill', branch: 'PHANTOM', name: 'Phase Through',    description: 'When auto DPS overkills a monster, leftover DPS bleeds into the next target that tick', requires: 'p4' },
 
   // ARCANE — spell-focused, touches tap + idle
-  { id: 'a1', branch: 'ARCANE',  name: 'Deep Capacitor',     description: '+60 max energy, +10% node output',            requires: null },
-  { id: 'a2', branch: 'ARCANE',  name: 'Fast Compile',       description: '-25% spell cooldowns, +5% tap dmg',           requires: 'a1' },
-  { id: 'a3', branch: 'ARCANE',  name: 'Amp Circuit',        description: '+25% spell mult, +5% auto DPS',               requires: 'a2' },
-  { id: 'a4', branch: 'ARCANE',  name: 'Resonance',          description: 'Chained spells deal +50% dmg, +10% gold/kill',requires: 'a3' },
-  { id: 'a5', branch: 'ARCANE',  name: 'Infinite Loop',      description: '5% chance spell resets its cooldown on cast', requires: 'a4' },
-  { id: 'a6', branch: 'ARCANE',  name: 'Mana Overflow',      description: 'Excess energy on cast → bonus tap dmg',        requires: 'a5' },
-  { id: 'a7', branch: 'ARCANE',  name: 'Arcane Echo',        description: 'Each spell cast adds 1 auto-tick hit',         requires: 'a6' },
+  { id: 'a1',       branch: 'ARCANE',  name: 'Deep Capacitor',     description: '+60 max energy, +10% node output',            requires: null },
+  { id: 'a2',       branch: 'ARCANE',  name: 'Fast Compile',       description: '-25% spell cooldowns, +5% tap dmg',           requires: 'a1' },
+  { id: 'a3',       branch: 'ARCANE',  name: 'Amp Circuit',        description: '+25% spell mult, +5% auto DPS',               requires: 'a2' },
+  { id: 'a4',       branch: 'ARCANE',  name: 'Resonance',          description: 'Chained spells deal +50% dmg, +10% gold/kill',requires: 'a3' },
+  { id: 'a5',       branch: 'ARCANE',  name: 'Infinite Loop',      description: '5% chance spell resets its cooldown on cast', requires: 'a4' },
+  { id: 'a6',       branch: 'ARCANE',  name: 'Mana Overflow',      description: 'Excess energy on cast → bonus tap dmg',        requires: 'a5' },
+  { id: 'a7',       branch: 'ARCANE',  name: 'Arcane Echo',        description: 'Each spell cast adds 1 auto-tick hit',         requires: 'a6' },
+  { id: 'a_overkill', branch: 'ARCANE', name: 'Spell Overflow',    description: 'When a spell overkills, excess damage is multiplied by spell mult and applied to the next target', requires: 'a4' },
 ];
 
 /** Milestone stages where a skill point is granted */
@@ -69,6 +72,9 @@ export function getSkillBonuses(state: GameState): {
   resonanceBonus: number;
   phantomLoopDouble: boolean;
   surgeProtocolActive: boolean;
+  strikerOverkill: boolean;
+  phantomOverkill: boolean;
+  arcaneOverkill: boolean;
 } {
   const stState: SkillTreePluginState = state.pluginState?.skilltree;
   const unlocked = new Set<string>(stState?.unlocked ?? []);
@@ -132,6 +138,9 @@ export function getSkillBonuses(state: GameState): {
     resonanceBonus:     unlocked.has('a4') ? 0.50 : 0,
     phantomLoopDouble:  unlocked.has('p7'),
     surgeProtocolActive: unlocked.has('s6'),
+    strikerOverkill:    unlocked.has('s_overkill'),
+    phantomOverkill:    unlocked.has('p_overkill'),
+    arcaneOverkill:     unlocked.has('a_overkill'),
   };
 }
 
