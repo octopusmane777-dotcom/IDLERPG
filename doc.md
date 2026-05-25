@@ -41,6 +41,10 @@ packages/web/      — Vite + React web entry point (uses @idlerpg/core + @idler
 | `missions` | MissionPlugin | `{dayKey,active:[],sessionKills,...}` | `CLAIM_MISSION` — 3 daily missions rotating each 24h, tracks kills/taps/spells/gold spent/scraps |
 | `boss` | BossPlugin | `{bossActive,bossHp,bossTimer,bossesDefeated}` | `BOSS_DAMAGE` — boss spawns every 10 stages, 30s timer, 3× gold reward on kill |
 | `skilltree` | SkillTreePlugin | `{points,unlocked:[]}` | `UNLOCK_SKILL` — 3 branches × 5 nodes, points earned from prestige |
+| `stats` | StatsPlugin | `{totalTaps,totalKills,totalGoldEarned,totalSecondsPlayed,totalBossesDefeated,totalMissionsClaimed,totalPrestiges}` | Intercepts `TAP_DAMAGE`, `PRESTIGE`, `CLAIM_MISSION` — lifetime counters |
+| `events` | EventPlugin | `{seenEvents:[],activeEvent,activeBuffExpiry,pendingEvent,eventLog:[]}` | `ACTIVATE_EVENT`, `DISMISS_EVENT` — 10 stage-milestone events with time-limited buffs |
+| `leaderboard` | LeaderboardPlugin | `{enabled,myRank,topPlayers:[],loading,error}` | `TOGGLE_LEADERBOARD` — opt-in anonymous Supabase leaderboard, submits every 5min when enabled |
+| `return` | ReturnPlugin | `{lastSeenAt,pendingBonus}` | `DISMISS_BONUS` — detects 2h+ offline, surfaces welcome-back screen with network income summary |
 
 **Plugin template:**
 ```ts
@@ -112,3 +116,4 @@ npx vitest run                       # Unit tests
 - **Phase 2:** Complete — Firebase, Prestige, Energy (spells), Achievements, Debug, UI library, web entry, Onboarding, Analytics
 - **Phase 3:** Complete — spell upgrades, damage numbers, equipment/gear, stage themes, anonymous cloud auth, haptic feedback
 - **Phase 4:** Complete — Engine bug fixes (pluginState corruption, offline chunking, onKill hook, equipment decoupling), NetworkPlugin, ComboPlugin, MissionPlugin, BossPlugin, SkillTreePlugin
+- **Phase 5:** Complete — StatsPlugin (lifetime counters), EventPlugin (10 narrative stage-events with time-limited buffs), LeaderboardPlugin (opt-in Supabase leaderboard + Edge Function), ReturnPlugin (welcome-back screen after 2h+ offline), tab badge indicators on web board

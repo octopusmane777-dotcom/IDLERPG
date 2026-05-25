@@ -740,3 +740,76 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 - Each prestige feels like a meaningful reset with clear forward progress (Skill Tree)
 - Daily sessions have a purpose beyond "check in and tap" (Missions)
 - The boss system creates at least 3 moments of genuine tension per hour
+
+---
+
+# Phase 5 — Depth, Identity, and Live World
+
+## 1. Stats Plugin (`packages/core/StatsPlugin.ts`)
+- [x] Create `StatsPlugin` tracking lifetime stats in plugin state
+  - [x] Tracks: `totalTaps`, `totalGoldEarned`, `totalKills`, `totalSecondsPlayed`, `totalBossesDefeated`, `totalMissionsClaimed`, `totalPrestiges`
+  - [x] Increments via `onTick` (seconds played), `onKill`, and `onAction` (tap/prestige/mission intercepts)
+- [x] Lifetime Stats grid shown in Progression tab on web board
+- [x] Export from `packages/core/index.ts`
+
+---
+
+## 2. Narrative Events System (`packages/core/EventPlugin.ts`)
+- [x] Create `EventPlugin`
+  - [x] Table of 10 events tied to stage milestones (5, 10, 25, 50, 75, 100, 150, 200, 300, 500)
+  - [x] Each event: title, AI-empire flavor text, buff type (`DOUBLE_GOLD / DOUBLE_TAP / FREE_SPELLS`), duration (90–600s)
+  - [x] State: `{ seenEvents, activeEvent, activeBuffExpiry, pendingEvent, eventLog }`
+  - [x] Fires in `onTick` when `state.level` matches a threshold not yet seen
+  - [x] Actions: `ACTIVATE_EVENT`, `DISMISS_EVENT`
+- [x] Event UI: full-screen modal with lore text, buff label, and activate/dismiss buttons
+- [x] Active buff banner shown on Core tab while buff is running
+- [x] Intel Log section in Progression tab showing past events with dates
+- [x] Export from `packages/core/index.ts` and wired into web app
+
+---
+
+## 3. Leaderboard Plugin + Supabase Backend (`packages/core/LeaderboardPlugin.ts`)
+- [x] Create `leaderboard` Supabase table (`user_id`, `stage`, `prestige_cores`, `monsters_defeated`, `updated_at`)
+  - [x] RLS: authenticated users write only their own row; all authenticated users can read top rows
+- [x] Deploy Supabase Edge Function `submit-score` — GET returns top 10, POST upserts player row
+- [x] Create `LeaderboardPlugin`
+  - [x] Opt-in (disabled by default); submits every 5 min when enabled
+  - [x] Fetches top-10 on enable and every 10 min
+  - [x] State: `{ enabled, myRank, topPlayers, loading, error }`
+  - [x] Actions: `TOGGLE_LEADERBOARD`, `_LEADERBOARD_RESULT` (internal)
+- [x] Leaderboard tab in web board (rankings list, player row highlighted, opt-in toggle)
+- [x] Export from `packages/core/index.ts` and wired into web app
+
+---
+
+## 4. Return Bonus Plugin (`packages/core/ReturnPlugin.ts`)
+- [x] Create `ReturnPlugin` that detects offline gaps >= 2 hours on `onInit`
+  - [x] Calculates network income earned while away (capped at 8h)
+  - [x] Detects if daily missions reset during absence
+  - [x] State: `{ lastSeenAt, pendingBonus }`
+  - [x] Action: `DISMISS_BONUS`
+  - [x] Updates `lastSeenAt` every 30s during active play
+- [x] Welcome-back overlay on web board: shows time away, gold earned, missions-reset notice
+- [x] Export from `packages/core/index.ts` and wired into web app
+
+---
+
+## 5. Tab Badge Indicators (web `App.tsx`)
+- [x] Red dot badge on Combat tab when boss is active
+- [x] Red dot badge on Network tab when a mission is ready to claim
+- [x] Badges clear when the player visits the tab
+
+---
+
+## Engine / Infra Changes
+- [x] No changes to `GameEngine.ts` or `BaseTypes.ts` required — all new behavior in new plugin files
+- [x] Supabase `leaderboard` table created with RLS
+- [x] Edge Function `submit-score` deployed
+
+---
+
+## Success Criteria
+- Player returning after 2+ hours sees a meaningful recap screen
+- Reaching stage 5 triggers the first narrative event with an activatable buff
+- Opting into the leaderboard submits scores automatically without user action
+- Lifetime stats are visible at a glance in the Progression tab
