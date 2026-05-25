@@ -23,7 +23,7 @@ import { LocalDataRepository } from '@idlerpg/core/LocalDataRepository';
 import { FirebaseDataRepository } from '@idlerpg/core/FirebaseDataRepository';
 import { CompositeRepository } from '@idlerpg/core/CompositeRepository';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 // ── theme ────────────────────────────────────────────────────────────────────
 const C = {
@@ -189,8 +189,8 @@ export default function App() {
   const prestigePulse = useRef(new Animated.Value(1)).current;
 
   // Swipe-up drawer
-  const DRAWER_COLLAPSED = 56;
-  const DRAWER_EXPANDED = SCREEN_W < 400 ? 320 : 360;
+  const DRAWER_COLLAPSED = 72;
+  const DRAWER_EXPANDED = Math.round(SCREEN_H * 0.85);
   const drawerAnim = useRef(new Animated.Value(DRAWER_COLLAPSED)).current;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerOpenRef = useRef(false);
@@ -593,8 +593,34 @@ export default function App() {
         })}
       </View>
 
-      {/* ── main content scroll (always visible) ── */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 80 }}>
+
+      {/* ── swipe-up tab drawer ── */}
+      <Animated.View style={[sx.swipeDrawer, { height: drawerAnim }]} {...panResponder.panHandlers}>
+        {/* Handle + current tab label */}
+        <Pressable style={sx.drawerHandle} onPress={toggleDrawer} accessibilityRole="button" accessibilityLabel="Toggle navigation drawer">
+          <View style={sx.drawerPill} />
+          <Text style={sx.drawerCurrentTab}>{TABS.find(t => t.id === tab)?.label ?? ''}</Text>
+          <Text style={[sx.drawerChevron, drawerOpen && { transform: [{ rotate: '180deg' }] }]}>▲</Text>
+        </Pressable>
+
+        {/* Horizontal tab bar */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={sx.drawerTabBar} contentContainerStyle={sx.drawerTabBarContent}>
+          {TABS.map(t => (
+            <Pressable
+              key={t.id}
+              style={[sx.drawerTabPill, tab === t.id && sx.drawerTabPillActive]}
+              onPress={() => { setTab(t.id); if (!drawerOpen) openDrawer(); }}
+              accessibilityRole="button"
+              accessibilityLabel={t.label}
+              accessibilityState={{ selected: tab === t.id }}
+            >
+              <Text style={[sx.drawerTabPillText, tab === t.id && sx.drawerTabPillTextActive]}>{t.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        {/* Tab content */}
+        <ScrollView style={sx.drawerContent} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* COMBAT TAB */}
           {tab === 'combat' && (
@@ -699,7 +725,6 @@ export default function App() {
           {/* BOARD TAB */}
           {tab === 'board' && (
             <View style={sx.tabContent}>
-              {/* Motherboard header */}
               <View style={sx.mbCard}>
                 <View style={sx.mbTierBadge}>
                   <Text style={sx.mbTierText}>TIER {equipment?.motherboardTier ?? 1}</Text>
@@ -730,7 +755,6 @@ export default function App() {
                 {equipment?.maxTier && <Text style={[sx.mbUpgradeBtnText, { color: C.gold }]}>MAX TIER</Text>}
               </View>
 
-              {/* RAM Slots */}
               <SectionHeader title="RAM SLOTS" sub={`${(equipment?.ramSlots ?? []).filter(Boolean).length} / ${equipment?.ramSlotCount ?? 2} installed`} />
               <View style={sx.slotGrid}>
                 {Array.from({ length: equipment?.ramSlotCount ?? 2 }).map((_, i) => {
@@ -749,7 +773,6 @@ export default function App() {
                 })}
               </View>
 
-              {/* GPU Slots */}
               <SectionHeader title="GPU SLOTS" sub={`${(equipment?.gpuSlots ?? []).filter(Boolean).length} / ${equipment?.gpuSlotCount ?? 1} installed`} />
               <View style={sx.slotGrid}>
                 {Array.from({ length: equipment?.gpuSlotCount ?? 1 }).map((_, i) => {
@@ -768,7 +791,6 @@ export default function App() {
                 })}
               </View>
 
-              {/* Inventory */}
               <SectionHeader title="INVENTORY" sub={`${(equipment?.inventory ?? []).filter((g: any) => !g.installedIn).length} components`} />
               {(equipment?.inventory ?? []).filter((g: any) => !g.installedIn).map((g: any) => (
                 <View key={g.id} style={sx.gearItem}>
@@ -783,7 +805,6 @@ export default function App() {
                       {Object.entries(g.bonuses ?? {}).map(([k, v]: any) => `+${v} ${k}`).join('  ')}
                     </Text>
                   </View>
-                  {/* Install buttons for available slots */}
                   <View style={{ flexDirection: 'column', gap: 4, padding: 8 }}>
                     {g.type === 'ram' && Array.from({ length: equipment?.ramSlotCount ?? 2 }).map((_, i) => {
                       const slotFilled = (equipment?.ramSlots ?? [])[i];
@@ -874,7 +895,6 @@ export default function App() {
           {/* PRESTIGE / ASCEND TAB */}
           {tab === 'prestige' && (
             <View style={sx.tabContent}>
-              {/* Shard display */}
               <View style={sx.ascendShardBox}>
                 <View style={sx.ascendShardRing}>
                   <Text style={sx.ascendShardNum}>{prestige?.cores ?? 0}</Text>
@@ -892,7 +912,6 @@ export default function App() {
                 </View>
               </View>
 
-              {/* Next bonus meter */}
               <View style={sx.ascendBonusMeter}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                   <Text style={sx.ascendMeterLabel}>NEXT SHARD BONUS</Text>
@@ -901,7 +920,6 @@ export default function App() {
                 <HexBar current={(prestige?.cores ?? 0) % 5} max={5} color={C.gold} height={6} />
               </View>
 
-              {/* Summary card */}
               <View style={sx.ascendSummaryCard}>
                 <Text style={sx.ascendSummaryTitle}>ASCENSION SUMMARY</Text>
                 <View style={sx.ascendSummaryRow}>
@@ -922,7 +940,6 @@ export default function App() {
                 </View>
               </View>
 
-              {/* Requirement */}
               <View style={sx.ascendReqRow}>
                 <Text style={sx.ascendReqLabel}>REQUIREMENT</Text>
                 <Text style={[sx.ascendReqVal, prestige?.canPrestige ? { color: C.green } : { color: C.dim }]}>
@@ -930,7 +947,6 @@ export default function App() {
                 </Text>
               </View>
 
-              {/* Ascend button */}
               <Animated.View style={{ transform: [{ scale: prestigePulse }] }}>
                 <Pressable
                   style={[sx.ascendBtn, prestige?.canPrestige ? sx.ascendBtnActive : sx.ascendBtnLocked]}
@@ -967,7 +983,6 @@ export default function App() {
                 Points earned at stage 50, then every 500 stages. First spend locks your path permanently.
               </Text>
 
-              {/* Path lock warning */}
               {!(skilltree?.chosenPath) && (skilltree?.points ?? 0) > 0 && (
                 <View style={sx.pathLockWarning}>
                   <Text style={sx.pathLockText}>WARNING: Choosing a path is permanent. Other paths will be disabled.</Text>
@@ -989,7 +1004,7 @@ export default function App() {
                 const branchColor = branch === 'STRIKER' ? C.red : branch === 'PHANTOM' ? C.green : C.gold;
                 const chosenPath = skilltree?.chosenPath ?? null;
                 const isLocked = chosenPath !== null && chosenPath !== branch;
-                if (isLocked) return null; // collapse locked branches
+                if (isLocked) return null;
 
                 return (
                   <View key={branch} style={sx.skillBranch}>
@@ -1022,7 +1037,6 @@ export default function App() {
                 );
               })}
 
-              {/* Show other paths collapsed */}
               {skilltree?.chosenPath && (
                 <View style={sx.lockedPaths}>
                   {(['STRIKER', 'PHANTOM', 'ARCANE'] as const).filter(b => b !== skilltree.chosenPath).map(branch => {
@@ -1038,35 +1052,7 @@ export default function App() {
             </View>
           )}
 
-      </ScrollView>
-
-      {/* ── swipe-up tab drawer ── */}
-      <Animated.View style={[sx.swipeDrawer, { height: drawerAnim }]} {...panResponder.panHandlers}>
-        {/* Handle + current tab label */}
-        <Pressable style={sx.drawerHandle} onPress={toggleDrawer} accessibilityRole="button" accessibilityLabel="Toggle navigation drawer">
-          <View style={sx.drawerPill} />
-          <Text style={sx.drawerCurrentTab}>{TABS.find(t => t.id === tab)?.label ?? ''}</Text>
-          <Text style={[sx.drawerChevron, drawerOpen && { transform: [{ rotate: '180deg' }] }]}>▲</Text>
-        </Pressable>
-
-        {/* Tab list — visible when open */}
-        {drawerOpen && (
-          <ScrollView style={sx.drawerList} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
-            {TABS.map(t => (
-              <Pressable
-                key={t.id}
-                style={[sx.drawerTabRow, tab === t.id && sx.drawerTabRowActive]}
-                onPress={() => { setTab(t.id); closeDrawer(); }}
-                accessibilityRole="button"
-                accessibilityLabel={t.label}
-                accessibilityState={{ selected: tab === t.id }}
-              >
-                <View style={[sx.drawerTabAccent, tab === t.id && { backgroundColor: C.cyan }]} />
-                <Text style={[sx.drawerTabText, tab === t.id && sx.drawerTabTextActive]}>{t.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        )}
+        </ScrollView>
       </Animated.View>
 
       {/* ── settings modal ── */}
@@ -1263,16 +1249,17 @@ const sx = StyleSheet.create({
     elevation: 20,
     shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: -4 },
   },
-  drawerHandle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 56, paddingHorizontal: 20, gap: 10 },
+  drawerHandle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 52, paddingHorizontal: 20, gap: 10 },
   drawerPill: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.dimmer },
   drawerCurrentTab: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 3, flex: 1, textAlign: 'center' },
   drawerChevron: { fontFamily: FONT_MONO, color: C.dim, fontSize: 10 },
-  drawerList: { flex: 1 },
-  drawerTabRow: { flexDirection: 'row', alignItems: 'center', height: 52, paddingHorizontal: 20, gap: 14, borderTopWidth: 1, borderColor: C.border + '55' },
-  drawerTabRowActive: { backgroundColor: C.surface2 },
-  drawerTabAccent: { width: 3, height: 20, borderRadius: 2, backgroundColor: C.dimmer },
-  drawerTabText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 13, fontWeight: '700', letterSpacing: 2 },
-  drawerTabTextActive: { color: C.cyan },
+  drawerTabBar: { flexGrow: 0, borderBottomWidth: 1, borderColor: C.border },
+  drawerTabBarContent: { flexDirection: 'row', paddingHorizontal: 12, gap: 6, paddingBottom: 8 },
+  drawerTabPill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: C.border },
+  drawerTabPillActive: { borderColor: C.cyan, backgroundColor: 'rgba(0,229,255,0.08)' },
+  drawerTabPillText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  drawerTabPillTextActive: { color: C.cyan },
+  drawerContent: { flex: 1 },
 
   tabContent: { padding: 12, gap: 4 },
 
