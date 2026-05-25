@@ -39,10 +39,10 @@ export class ProgressionPlugin implements EnginePlugin {
       const currentGold = state.resources.gold || 0;
       if (currentGold >= cost) {
         const nextResources = { ...state.resources, gold: currentGold - cost };
-        const nextGeneration = { ...state.generationRates, [resource]: (state.generationRates[resource] || 0) + amount };
+        const nextGeneration: Record<string, number> = { ...state.generationRates, [resource]: (state.generationRates[resource] || 0) + amount };
 
         // Recompute metadata
-        const gps = nextGeneration.gold || 0;
+        const gps = nextGeneration['gold'] || 0;
         const level = state.level || 1;
         const generationCost = Math.round(10 * Math.pow(1.25, Math.max(0, gps - 1)) + level * 2);
 
@@ -60,10 +60,10 @@ export class ProgressionPlugin implements EnginePlugin {
       if (currentGold >= cost) {
         const nextResources = { ...state.resources, gold: currentGold - cost };
         const nextLevel = state.level + 1;
-        const nextGeneration = { ...state.generationRates, gold: (state.generationRates.gold || 0) + 2 };
+        const nextGeneration: Record<string, number> = { ...state.generationRates, gold: (state.generationRates.gold || 0) + 2 };
 
         // Recompute metadata
-        const gps = nextGeneration.gold || 0;
+        const gps = nextGeneration['gold'] || 0;
         const generationCost = Math.round(10 * Math.pow(1.25, Math.max(0, gps - 1)) + nextLevel * 2);
         const levelUpCost = Math.round(40 * Math.pow(1.35, Math.max(1, nextLevel) - 1));
 

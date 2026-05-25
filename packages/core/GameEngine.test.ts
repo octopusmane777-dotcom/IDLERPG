@@ -6,7 +6,8 @@ import { EnergyPlugin } from './EnergyPlugin';
 import { AchievementPlugin } from './AchievementPlugin';
 import { AdaptiveModule } from './AdaptiveModule';
 import { DebugPlugin } from './DebugPlugin';
-import { StorageAdapter, GameDataRepository, GameSave } from './BaseTypes';
+import { GameDataRepository, GameSave } from './BaseTypes';
+import { StorageAdapter } from './LocalDataRepository';
 
 // Mock StorageAdapter for testing
 class MockStorageAdapter implements StorageAdapter {
