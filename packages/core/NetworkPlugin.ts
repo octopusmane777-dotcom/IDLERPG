@@ -40,9 +40,10 @@ export class NetworkPlugin implements EnginePlugin {
     const nState: NetworkPluginState = state.pluginState[this.id];
     if (!nState) return;
 
+    const ownedNodes = nState.nodes || {};
     let totalRate = 0;
     for (const n of NETWORK_NODES) {
-      totalRate += (nState.nodes[n.id] || 0) * n.baseRate;
+      totalRate += (ownedNodes[n.id] || 0) * n.baseRate;
     }
     if (totalRate <= 0) return;
 
@@ -55,10 +56,11 @@ export class NetworkPlugin implements EnginePlugin {
     const nState: NetworkPluginState = state.pluginState[this.id];
     if (!nState) return undefined;
 
+    const ownedNodes = nState.nodes || {};
     const gold = state.resources.gold || 0;
     let totalOutput = 0;
     const nodes = NETWORK_NODES.map(n => {
-      const count = nState.nodes[n.id] || 0;
+      const count = ownedNodes[n.id] || 0;
       const rate = count * n.baseRate;
       totalOutput += rate;
       const nextCost = nodeCost(n, count);
@@ -88,7 +90,7 @@ export class NetworkPlugin implements EnginePlugin {
     const def = NETWORK_NODES.find(n => n.id === nodeId);
     if (!def) return;
 
-    const owned = nState.nodes[nodeId] || 0;
+    const owned = (nState.nodes || {})[nodeId] || 0;
     const cost = nodeCost(def, owned);
     const gold = state.resources.gold || 0;
     if (gold < cost) return;
@@ -96,7 +98,7 @@ export class NetworkPlugin implements EnginePlugin {
     return {
       resources: { ...state.resources, gold: gold - cost },
       pluginState: {
-        [this.id]: { nodes: { ...nState.nodes, [nodeId]: owned + 1 } },
+        [this.id]: { nodes: { ...(nState.nodes || {}), [nodeId]: owned + 1 } },
       },
     };
   }
