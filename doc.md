@@ -97,12 +97,11 @@ export class X implements EnginePlugin {
 ```
 cd packages/app && npx expo start    # Expo
 cd packages/web && npx vite          # Web
-npx ts-node test-balance.ts          # 6h simulation
-npx ts-node test-*.ts                # Various engine tests
+npx vitest run                       # Unit tests
 ```
 
 ## `plan.md` Status
 - **Phase 1:** Complete (core engine, persistence, plugin polish, UI, tests)
-- **Phase 2:** Complete — Firebase, Prestige, Energy (spells), Achievements, Debug, UI library, web entry, Onboarding, Analytics, test-balance
+- **Phase 2:** Complete — Firebase, Prestige, Energy (spells), Achievements, Debug, UI library, web entry, Onboarding, Analytics
 - **Phase 3:** Complete — spell upgrades, damage numbers, equipment/gear, stage themes, anonymous cloud auth, haptic feedback
-- Remaining: optional audio clips, play-test verification
+- **Phase 4:** Planned — Network Nodes, Daily Missions, Combo System, Skill Tree, Boss Rush, Narrative Events, Leaderboard
