@@ -302,15 +302,15 @@ pluginState: { ...state.pluginState, [this.id]: { ...myState } }
 This means Plugin B's return includes a snapshot of Plugin A's state from *before* A ran. When `applyStateUpdates` merges B's result, it overwrites A's changes with the stale snapshot. Bugs appear now: `EnergyPlugin.onAction` writes both `energy` and `adaptive` keys — this works by accident. Once `MissionPlugin` or `NetworkPlugin` run alongside `AdaptiveModule` in the same tick, state corruption will occur.
 
 **Fix:** Change plugins to return only their own key, not the full `pluginState`. Then `applyStateUpdates` merges cleanly. This requires:
-- [ ] Change `applyStateUpdates` to merge `pluginState` per key (already correct — the merge IS per-key via spread, but each plugin must only return ITS key, not the full object)
-- [ ] Update `AdaptiveModule.ts` — `onTick` and `onAction`: return `pluginState: { [this.id]: {...} }` only (not `...state.pluginState, [this.id]`)
-- [ ] Update `EnergyPlugin.ts` — same fix; also its `onAction` directly writes `adaptive:` state which is a CROSS-PLUGIN write (a separate bug — see A3)
-- [ ] Update `PrestigePlugin.ts` — `onTick` and `onAction` return full `pluginState`
-- [ ] Update `EquipmentPlugin.ts` — `onAction` returns full `pluginState`
-- [ ] Update `AchievementPlugin.ts` — `onTick` returns full `pluginState`
-- [ ] Update `DebugPlugin.ts` — `onAction` returns full `pluginState`
-- [ ] Update `OnboardingPlugin.ts` — `onAction` returns full `pluginState`
-- [ ] Update `AnalyticsPlugin.ts` — `onAction` returns full `pluginState`
+- [x] Change `applyStateUpdates` to merge `pluginState` per key (already correct — the merge IS per-key via spread, but each plugin must only return ITS key, not the full object)
+- [x] Update `AdaptiveModule.ts` — `onTick` and `onAction`: return `pluginState: { [this.id]: {...} }` only (not `...state.pluginState, [this.id]`)
+- [x] Update `EnergyPlugin.ts` — same fix; also its `onAction` directly writes `adaptive:` state which is a CROSS-PLUGIN write (a separate bug — see A3)
+- [x] Update `PrestigePlugin.ts` — `onTick` and `onAction` return full `pluginState`
+- [x] Update `EquipmentPlugin.ts` — `onAction` returns full `pluginState`
+- [x] Update `AchievementPlugin.ts` — `onTick` returns full `pluginState`
+- [x] Update `DebugPlugin.ts` — `onAction` returns full `pluginState`
+- [x] Update `OnboardingPlugin.ts` — `onAction` returns full `pluginState`
+- [x] Update `AnalyticsPlugin.ts` — `onAction` returns full `pluginState`
 
 ## A2. Fix offline progress large-delta crash (`packages/core/BaseTypes.ts`)
 
@@ -321,11 +321,11 @@ const maxKills = Math.min(deltaSec, 1);
 This caps kills per tick to 1 regardless of offline time — so 8 hours offline still only kills 1 enemy. Meanwhile `EnergyPlugin.onTick` ticks down cooldowns for 28800 seconds, which is correct but wastes time computing near-zero values. Other future plugins (NetworkPlugin, MissionPlugin) will have time-dependent state that produces wrong results at huge deltas.
 
 **Fix:** Chunk offline progress into 1-second slices (capped total). Add a chunked loop:
-- [ ] In `processOfflineProgress`, replace the single `plugin.onTick(state, cappedSec)` call with a loop: `for (let t = 0; t < cappedSec; t += CHUNK_SEC)` where `CHUNK_SEC = 1`
-- [ ] Cap total iterations to `Math.min(cappedSec, offlineCapSec)` — already capped, so the loop count is bounded
-- [ ] Call `this.state.lastTick = now` only after the loop completes
-- [ ] Keep the existing `generationRates` batch calculation (no need to chunk that — it's linear math)
-- [ ] After fixing: `AdaptiveModule.onTick` no longer needs the `maxKills = Math.min(deltaSec, 1)` hack — remove it and let the 1-second chunks handle the cap naturally
+- [x] In `processOfflineProgress`, replace the single `plugin.onTick(state, cappedSec)` call with a loop: `for (let t = 0; t < cappedSec; t += CHUNK_SEC)` where `CHUNK_SEC = 1`
+- [x] Cap total iterations to `Math.min(cappedSec, offlineCapSec)` — already capped, so the loop count is bounded
+- [x] Call `this.state.lastTick = now` only after the loop completes
+- [x] Keep the existing `generationRates` batch calculation (no need to chunk that — it's linear math)
+- [x] After fixing: `AdaptiveModule.onTick` no longer needs the `maxKills = Math.min(deltaSec, 1)` hack — remove it and let the 1-second chunks handle the cap naturally
 
 ## A3. Fix cross-plugin state write in `EnergyPlugin` (`packages/core/EnergyPlugin.ts`)
 
@@ -342,8 +342,8 @@ return {
 This is the only plugin that does this. It works now but is fragile — if `AdaptiveModule` adds new state fields, `EnergyPlugin` silently drops them.
 
 **Fix:** `EnergyPlugin.onAction` should return only its own state change. Monster damage from spells should be processed via a separate `PLUGIN_ACTION` to `adaptive`. Two approaches:
-- [ ] Option A (simpler): Keep the cross-write but change it to only write the specific fields it changes (`monsterHp`, `monsterMaxHp`, `monstersDefeated`), not a full spread of `adaptiveState`. This avoids dropping new fields.
-- [ ] Implement Option A in `EnergyPlugin.ts`
+- [x] Option A (simpler): Keep the cross-write but change it to only write the specific fields it changes (`monsterHp`, `monsterMaxHp`, `monstersDefeated`), not a full spread of `adaptiveState`. This avoids dropping new fields.
+- [x] Implement Option A in `EnergyPlugin.ts`
 
 ## A4. Remove `equipment` hard-coding from engine (`packages/core/BaseTypes.ts`)
 
@@ -355,14 +355,14 @@ if (equipPlugin?.onAction) { equipPlugin.onAction(this.state, { type: 'GENERATE_
 This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 
 **Fix:** Add `onKill?(state: GameState, killCount: number): Partial<GameState> | void` to the `EnginePlugin` interface. Call it generically on kill events.
-- [ ] Add `onKill?` to `EnginePlugin` interface in `BaseTypes.ts`
-- [ ] Replace the 2 hard-coded `equipment` blocks in `dispatch` with a loop: `this.plugins.forEach(p => { if (p.onKill) { ... } })`
-- [ ] Implement `onKill` in `EquipmentPlugin.ts` (move `GENERATE_DROP` logic there)
-- [ ] Remove `GENERATE_DROP` from `EquipmentPlugin.onAction` and `from BaseTypes.ts` dispatch
+- [x] Add `onKill?` to `EnginePlugin` interface in `BaseTypes.ts`
+- [x] Replace the 2 hard-coded `equipment` blocks in `dispatch` with a loop: `this.plugins.forEach(p => { if (p.onKill) { ... } })`
+- [x] Implement `onKill` in `EquipmentPlugin.ts` (move `GENERATE_DROP` logic there)
+- [x] Remove `GENERATE_DROP` from `EquipmentPlugin.onAction` and `from BaseTypes.ts` dispatch
 
 ## A5. Delete dead file (`packages/core/GameEngineWithLoad.ts`)
 
-- [ ] Delete `packages/core/GameEngineWithLoad.ts` — it contains only a comment saying it's superseded. It is not exported from `index.ts` but still exists on disk as a confusing artefact.
+- [x] Delete `packages/core/GameEngineWithLoad.ts` — it contains only a comment saying it's superseded. It is not exported from `index.ts` but still exists on disk as a confusing artefact.
 
 ---
 
@@ -374,27 +374,27 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 
 **Design:** 5 purchasable node types that add to resources each tick. Prices double per purchase (classic idle formula). Entirely self-contained in plugin state — does not touch `generationRates`.
 
-- [ ] Create `packages/core/NetworkPlugin.ts`
-  - [ ] Implement `EnginePlugin` with `id = 'network'`
-  - [ ] Define `NetworkPluginState`: `{ nodes: Record<string, number> }` — key = nodeId, value = count owned
-  - [ ] Define 5 node types (all in the file as a constant):
+- [x] Create `packages/core/NetworkPlugin.ts`
+  - [x] Implement `EnginePlugin` with `id = 'network'`
+  - [x] Define `NetworkPluginState`: `{ nodes: Record<string, number> }` — key = nodeId, value = count owned
+  - [x] Define 5 node types (all in the file as a constant):
     - `bot_farm`: base rate 0.5/s, base cost 50
     - `scraper`: base rate 3/s, base cost 500
     - `proxy_cluster`: base rate 15/s, base cost 3000
     - `ai_server`: base rate 75/s, base cost 20000
     - `quantum_core`: base rate 400/s, base cost 150000
-  - [ ] Cost formula: `baseCost * 2^count` (doubles per purchase)
-  - [ ] `onInit`: safe re-init guard, default all node counts to 0
-  - [ ] `onTick(state, deltaSec)`: sum all node outputs, add to `resources.gold`
-  - [ ] `onAction`: handle `BUY_NODE` — validate gold, deduct cost, increment count
-  - [ ] `getActionMetadata`: return array of nodes with `{ id, name, count, rate, nextCost, totalOutput }`
-  - [ ] Export state interface and class
-- [ ] Export from `packages/core/index.ts`
-- [ ] Wire into `packages/app/app/index.tsx` engine plugins array
-- [ ] Wire into `packages/web/src/App.tsx` engine plugins array
-- [ ] Add node list UI to "System Upgrades" tab in Expo app (below existing tap upgrade)
-- [ ] Add node list UI in web app
-- [ ] Document in `doc.md` plugins table
+  - [x] Cost formula: `baseCost * 2^count` (doubles per purchase)
+  - [x] `onInit`: safe re-init guard, default all node counts to 0
+  - [x] `onTick(state, deltaSec)`: sum all node outputs, add to `resources.gold`
+  - [x] `onAction`: handle `BUY_NODE` — validate gold, deduct cost, increment count
+  - [x] `getActionMetadata`: return array of nodes with `{ id, name, count, rate, nextCost, totalOutput }`
+  - [x] Export state interface and class
+- [x] Export from `packages/core/index.ts`
+- [x] Wire into `packages/app/app/index.tsx` engine plugins array
+- [x] Wire into `packages/web/src/App.tsx` engine plugins array
+- [x] Add node list UI to "System Upgrades" tab in Expo app (below existing tap upgrade)
+- [x] Add node list UI in web app
+- [x] Document in `doc.md` plugins table
 
 ## B2. MissionPlugin — Daily Missions (`packages/core/MissionPlugin.ts`)
 
@@ -402,11 +402,11 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 
 **Design:** 3 rotating missions that refresh every 24h. Progress tracked per-action and per-tick. Rewards are gold lumps.
 
-- [ ] Create `packages/core/MissionPlugin.ts`
-  - [ ] Implement `EnginePlugin` with `id = 'missions'`
-  - [ ] Define `MissionPluginState`: `{ dayKey: number, active: MissionProgress[], claimed: string[] }`
-  - [ ] Define `MissionProgress`: `{ id, description, target, progress, reward, completed, claimed }`
-  - [ ] Pool of 10 mission templates (defined as a constant array):
+- [x] Create `packages/core/MissionPlugin.ts`
+  - [x] Implement `EnginePlugin` with `id = 'missions'`
+  - [x] Define `MissionPluginState`: `{ dayKey: number, active: MissionProgress[], claimed: string[] }`
+  - [x] Define `MissionProgress`: `{ id, description, target, progress, reward, completed, claimed }`
+  - [x] Pool of 10 mission templates (defined as a constant array):
     - `kill_25`: Kill 25 targets — reward 500
     - `kill_100`: Kill 100 targets — reward 2500
     - `tap_50`: Deal 50 tap attacks — reward 300
@@ -417,17 +417,17 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
     - `upgrade_tap`: Upgrade tap power once — reward 400
     - `scrap_gear`: Scrap 3 hardware pieces — reward 700
     - `combo_max`: Reach 10-tap combo (added with combo system) — reward 500
-  - [ ] Day key: `Math.floor(Date.now() / 86400000)` — pick 3 missions deterministically using day key as seed
-  - [ ] `onInit`: safe re-init, pick today's 3 missions if dayKey changed
-  - [ ] `onTick`: check dayKey, rotate missions if new day; track `kill` progress via `state.level` delta; track `earn_gold` via resource delta
-  - [ ] `onAction`: intercept all relevant action types to increment progress; handle `CLAIM_MISSION`
-  - [ ] `getActionMetadata`: return `{ missions: { list, nextReset } }`
-  - [ ] Export state interface and class
-- [ ] Export from `packages/core/index.ts`
-- [ ] Wire into both app plugin arrays
-- [ ] Add "Missions" tab to Expo drawer (replace or add alongside existing tabs)
-- [ ] Add Missions section to web app
-- [ ] Document in `doc.md`
+  - [x] Day key: `Math.floor(Date.now() / 86400000)` — pick 3 missions deterministically using day key as seed
+  - [x] `onInit`: safe re-init, pick today's 3 missions if dayKey changed
+  - [x] `onTick`: check dayKey, rotate missions if new day; track `kill` progress via `state.level` delta; track `earn_gold` via resource delta
+  - [x] `onAction`: intercept all relevant action types to increment progress; handle `CLAIM_MISSION`
+  - [x] `getActionMetadata`: return `{ missions: { list, nextReset } }`
+  - [x] Export state interface and class
+- [x] Export from `packages/core/index.ts`
+- [x] Wire into both app plugin arrays
+- [x] Add "Missions" tab to Expo drawer (replace or add alongside existing tabs)
+- [x] Add Missions section to web app
+- [x] Document in `doc.md`
 
 ## B3. ComboPlugin — Tap Combo Multiplier (`packages/core/ComboPlugin.ts`)
 
@@ -435,21 +435,21 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 
 **Design:** Rapid taps within 1.5 seconds build a multiplier. Separate plugin to keep `AdaptiveModule` clean.
 
-- [ ] Create `packages/core/ComboPlugin.ts`
-  - [ ] Implement `EnginePlugin` with `id = 'combo'`
-  - [ ] Define `ComboPluginState`: `{ count: number, lastTapTime: number, multiplier: number }`
-  - [ ] `onInit`: safe re-init, defaults `{ count: 0, lastTapTime: 0, multiplier: 1 }`
-  - [ ] `onTick(state, deltaSec)`: if `Date.now() - lastTapTime > 1500`, reset `count` to 0 and `multiplier` to 1
-  - [ ] `onAction`: intercept `TAP_DAMAGE` — increment `count` (cap 20), compute `multiplier = 1 + count * 0.1`, store `lastTapTime`
-  - [ ] `getActionMetadata`: return `{ combo: { count, multiplier, active: count > 0 } }`
-  - [ ] Note: `AdaptiveModule` must read `state.pluginState.combo?.multiplier ?? 1` and apply it to tap damage in `onAction`. This is a read-only cross-plugin state read (not a write) — acceptable per convention.
-  - [ ] Update `AdaptiveModule.onAction` for `TAP_DAMAGE`: multiply `tapDmg` by `comboMultiplier`
-  - [ ] Export state interface and class
-- [ ] Export from `packages/core/index.ts`
-- [ ] Wire into both app plugin arrays
-- [ ] Add combo counter UI above monster in Expo app (`×1.5 COMBO!`, color shifts white→yellow→orange→red)
-- [ ] Add combo indicator in web app
-- [ ] Document in `doc.md`
+- [x] Create `packages/core/ComboPlugin.ts`
+  - [x] Implement `EnginePlugin` with `id = 'combo'`
+  - [x] Define `ComboPluginState`: `{ count: number, lastTapTime: number, multiplier: number }`
+  - [x] `onInit`: safe re-init, defaults `{ count: 0, lastTapTime: 0, multiplier: 1 }`
+  - [x] `onTick(state, deltaSec)`: if `Date.now() - lastTapTime > 1500`, reset `count` to 0 and `multiplier` to 1
+  - [x] `onAction`: intercept `TAP_DAMAGE` — increment `count` (cap 20), compute `multiplier = 1 + count * 0.1`, store `lastTapTime`
+  - [x] `getActionMetadata`: return `{ combo: { count, multiplier, active: count > 0 } }`
+  - [x] Note: `AdaptiveModule` must read `state.pluginState.combo?.multiplier ?? 1` and apply it to tap damage in `onAction`. This is a read-only cross-plugin state read (not a write) — acceptable per convention.
+  - [x] Update `AdaptiveModule.onAction` for `TAP_DAMAGE`: multiply `tapDmg` by `comboMultiplier`
+  - [x] Export state interface and class
+- [x] Export from `packages/core/index.ts`
+- [x] Wire into both app plugin arrays
+- [x] Add combo counter UI above monster in Expo app (`×1.5 COMBO!`, color shifts white→yellow→orange→red)
+- [x] Add combo indicator in web app
+- [x] Document in `doc.md`
 
 ## B4. BossPlugin — Boss Rush (`packages/core/BossPlugin.ts`)
 
@@ -457,21 +457,21 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 
 **Design:** Every 10 stage kills, a boss spawns with 10× HP and a 30-second countdown. Killing it gives 3× gold + guaranteed gear drop. Timer expiry retreats boss silently.
 
-- [ ] Create `packages/core/BossPlugin.ts`
-  - [ ] Implement `EnginePlugin` with `id = 'boss'`
-  - [ ] Define `BossPluginState`: `{ bossActive: boolean, bossHp: number, bossMaxHp: number, bossTimer: number, bossesDefeated: number, nextBossAt: number }`
-  - [ ] `onInit`: safe re-init, `{ bossActive: false, bossHp: 0, bossMaxHp: 0, bossTimer: 0, bossesDefeated: 0, nextBossAt: 10 }`
-  - [ ] `onTick(state, deltaSec)`:
+- [x] Create `packages/core/BossPlugin.ts`
+  - [x] Implement `EnginePlugin` with `id = 'boss'`
+  - [x] Define `BossPluginState`: `{ bossActive: boolean, bossHp: number, bossMaxHp: number, bossTimer: number, bossesDefeated: number, nextBossAt: number }`
+  - [x] `onInit`: safe re-init, `{ bossActive: false, bossHp: 0, bossMaxHp: 0, bossTimer: 0, bossesDefeated: 0, nextBossAt: 10 }`
+  - [x] `onTick(state, deltaSec)`:
     - If `bossActive`: tick down `bossTimer -= deltaSec`; if `bossTimer <= 0`, retreat boss (set `bossActive: false`)
     - Check if `state.level >= nextBossAt` and `!bossActive`: spawn boss (`bossMaxHp = state.pluginState.adaptive.monsterMaxHp * 10`, `bossHp = bossMaxHp`, `bossTimer = 30`, `nextBossAt = state.level + 10`)
-  - [ ] `onAction`: intercept `TAP_DAMAGE` and spell actions — if `bossActive`, route damage to `bossHp` instead; on kill: `bossActive = false`, grant `goldGained * 3`, dispatch `GENERATE_DROP` via returning kill result including `level` increment
-  - [ ] `getActionMetadata`: return `{ boss: { bossActive, bossHp, bossMaxHp, bossTimer, bossesDefeated } }`
-  - [ ] Export state interface and class
-- [ ] Export from `packages/core/index.ts`
-- [ ] Wire into both app plugin arrays
-- [ ] Boss UI in Expo: replaces monster area when `bossActive` — red HP bar, countdown timer, different emoji (`⚠️ BOSS`)
-- [ ] Boss UI in web app
-- [ ] Document in `doc.md`
+  - [x] `onAction`: intercept `TAP_DAMAGE` and spell actions — if `bossActive`, route damage to `bossHp` instead; on kill: `bossActive = false`, grant `goldGained * 3`, dispatch `GENERATE_DROP` via returning kill result including `level` increment
+  - [x] `getActionMetadata`: return `{ boss: { bossActive, bossHp, bossMaxHp, bossTimer, bossesDefeated } }`
+  - [x] Export state interface and class
+- [x] Export from `packages/core/index.ts`
+- [x] Wire into both app plugin arrays
+- [x] Boss UI in Expo: replaces monster area when `bossActive` — red HP bar, countdown timer, different emoji (`⚠️ BOSS`)
+- [x] Boss UI in web app
+- [x] Document in `doc.md`
 
 ## B5. SkillTreePlugin — Prestige Skill Tree (`packages/core/SkillTreePlugin.ts`)
 
@@ -479,59 +479,59 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 
 **Design:** Each prestige grants 1 skill point. 3 branches × 5 nodes each. Nodes have prerequisites (must unlock parent first). Bonuses are multipliers read by `AdaptiveModule`, `EnergyPlugin`, and `NetworkPlugin`.
 
-- [ ] Create `packages/core/SkillTreePlugin.ts`
-  - [ ] Implement `EnginePlugin` with `id = 'skilltree'`
-  - [ ] Define `SkillTreePluginState`: `{ points: number, unlocked: string[] }`
-  - [ ] Define tree as a constant — 3 branches:
+- [x] Create `packages/core/SkillTreePlugin.ts`
+  - [x] Implement `EnginePlugin` with `id = 'skilltree'`
+  - [x] Define `SkillTreePluginState`: `{ points: number, unlocked: string[] }`
+  - [x] Define tree as a constant — 3 branches:
     - `HACK` branch: `h1` (+10% tap dmg), `h2` (+20% tap dmg, req h1), `h3` (+1 energy regen/s, req h2), `h4` (+15% spell mult, req h3), `h5` (-20% spell CD, req h4)
     - `INFRA` branch: `i1` (+25% node output), `i2` (+50 max energy, req i1), `i3` (+1 auto DPS, req i2), `i4` (+25% node output again, req i3), `i5` (x2 offline cap to 16h, req i4)
     - `GHOST` branch: `g1` (+15% gold/kill), `g2` (+10% equipment drop rate, req g1), `g3` (+20% gold/kill, req g2), `g4` (+1 gear inventory slot (up to 40), req g3), `g5` (+50% scrap gold value, req g4)
-  - [ ] `onInit`: safe re-init, `{ points: 0, unlocked: [] }`
-  - [ ] `onAction`: handle `UNLOCK_SKILL` — validate `points > 0` and prerequisites; deduct point; add to `unlocked`
-  - [ ] `onTick`: no-op (bonuses read directly by other plugins from state)
-  - [ ] `getActionMetadata`: return full tree with `{ unlocked, points, branches: [...nodes with unlocked/available/locked status] }`
-  - [ ] Update `PrestigePlugin.onAction`: on successful prestige, grant +1 to `skilltree.points`
-  - [ ] Update `AdaptiveModule` to read `skilltree.unlocked` for tap/DPS bonuses
-  - [ ] Update `EnergyPlugin` to read `skilltree.unlocked` for energy/spell bonuses
-  - [ ] Update `NetworkPlugin` to read `skilltree.unlocked` for output bonuses
-  - [ ] Export state interface and class
-- [ ] Export from `packages/core/index.ts`
-- [ ] Wire into both app plugin arrays
-- [ ] Add "Skill Tree" tab to Expo drawer
-- [ ] Add Skill Tree section to web app
-- [ ] Document in `doc.md`
+  - [x] `onInit`: safe re-init, `{ points: 0, unlocked: [] }`
+  - [x] `onAction`: handle `UNLOCK_SKILL` — validate `points > 0` and prerequisites; deduct point; add to `unlocked`
+  - [x] `onTick`: no-op (bonuses read directly by other plugins from state)
+  - [x] `getActionMetadata`: return full tree with `{ unlocked, points, branches: [...nodes with unlocked/available/locked status] }`
+  - [x] Update `PrestigePlugin.onAction`: on successful prestige, grant +1 to `skilltree.points`
+  - [x] Update `AdaptiveModule` to read `skilltree.unlocked` for tap/DPS bonuses
+  - [x] Update `EnergyPlugin` to read `skilltree.unlocked` for energy/spell bonuses
+  - [x] Update `NetworkPlugin` to read `skilltree.unlocked` for output bonuses
+  - [x] Export state interface and class
+- [x] Export from `packages/core/index.ts`
+- [x] Wire into both app plugin arrays
+- [x] Add "Skill Tree" tab to Expo drawer
+- [x] Add Skill Tree section to web app
+- [x] Document in `doc.md`
 
 ---
 
 # PART C — UI & Polish
 
 ## C1. Expo app UI (`packages/app/app/index.tsx`)
-- [ ] Add "Missions" tab to tab bar (replace "Milestones" or add as 6th tab)
-- [ ] Add "Skill Tree" tab to tab bar
-- [ ] Add Network Nodes list to "System Upgrades" tab (below tap upgrade)
-- [ ] Add combo counter overlay above monster (visible when `combo.count > 2`)
-- [ ] Add boss HP bar + timer overlay when `boss.bossActive` — replaces normal monster HP bar
-- [ ] Add "welcome back" banner after offline > 2h: "Welcome back! You earned X compute while away."
+- [x] Add "Missions" tab to tab bar (replace "Milestones" or add as 6th tab)
+- [x] Add "Skill Tree" tab to tab bar
+- [x] Add Network Nodes list to "System Upgrades" tab (below tap upgrade)
+- [x] Add combo counter overlay above monster (visible when `combo.count > 2`)
+- [x] Add boss HP bar + timer overlay when `boss.bossActive` — replaces normal monster HP bar
+- [x] Add "welcome back" banner after offline > 2h: "Welcome back! You earned X compute while away."
 
 ## C2. Web app UI (`packages/web/src/App.tsx`)
-- [ ] Add Network Nodes card
-- [ ] Add Missions card
-- [ ] Add Combo indicator
-- [ ] Add Boss indicator when active
-- [ ] Add Skill Tree card
+- [x] Add Network Nodes card
+- [x] Add Missions card
+- [x] Add Combo indicator
+- [x] Add Boss indicator when active
+- [x] Add Skill Tree card
 
 ## C3. `doc.md` updates
-- [ ] Add all 5 new plugins to the Built-in Plugins table
-- [ ] Update gameplay rules section (passive income, combo, boss)
-- [ ] Update Phase 4 status to "In Progress"
+- [x] Add all 5 new plugins to the Built-in Plugins table
+- [x] Update gameplay rules section (passive income, combo, boss)
+- [x] Update Phase 4 status to "In Progress"
 
 ## C4. `packages/core/index.ts` exports
-- [ ] Export `NetworkPlugin`, `MissionPlugin`, `ComboPlugin`, `BossPlugin`, `SkillTreePlugin`
+- [x] Export `NetworkPlugin`, `MissionPlugin`, `ComboPlugin`, `BossPlugin`, `SkillTreePlugin`
 
 ## C5. Tests (`packages/core/GameEngine.test.ts`)
-- [ ] Add unit tests for `NetworkPlugin` (onTick produces gold, BUY_NODE deducts cost)
-- [ ] Add unit tests for `ComboPlugin` (count increments, multiplier applies, resets after 1.5s)
-- [ ] Add unit tests for `BossPlugin` (spawns at correct stage, timer retreat, kill reward)
+- [x] Add unit tests for `NetworkPlugin` (onTick produces gold, BUY_NODE deducts cost)
+- [x] Add unit tests for `ComboPlugin` (count increments, multiplier applies, resets after 1.5s)
+- [x] Add unit tests for `BossPlugin` (spawns at correct stage, timer retreat, kill reward)
 
 ---
 
@@ -580,17 +580,17 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 **The problem:** upgrades are linear. Players never make meaningful decisions.
 **The fix:** a branching skill tree where each prestige unlocks 1 skill point to spend on permanent paths.
 
-- [ ] Create `SkillTreePlugin`
-  - [ ] Three branches: `HACK` (tap/spell power), `INFRA` (auto DPS, energy cap), `GHOST` (gold multiplier, equipment drop rate)
-  - [ ] Each branch has 5 nodes; each node costs 1 skill point and has a prerequisite
-  - [ ] Bonuses applied multiplicatively in `AdaptiveModule` and `EnergyPlugin` via shared state read
-  - [ ] Action: `UNLOCK_SKILL` — validates point budget and prerequisites
-  - [ ] `getActionMetadata()` returns tree structure, unlocked nodes, available points
-- [ ] Skill tree UI in Expo app
-  - [ ] New tab "Skill Tree" in bottom drawer
-  - [ ] Visual tree with nodes (locked/available/unlocked) and branch lines
-  - [ ] Each node shows name, description, cost, and bonus value
-- [ ] Export from `packages/core/index.ts` and wire into both apps
+- [x] Create `SkillTreePlugin`
+  - [x] Three branches: `HACK` (tap/spell power), `INFRA` (auto DPS, energy cap), `GHOST` (gold multiplier, equipment drop rate)
+  - [x] Each branch has 5 nodes; each node costs 1 skill point and has a prerequisite
+  - [x] Bonuses applied multiplicatively in `AdaptiveModule` and `EnergyPlugin` via shared state read
+  - [x] Action: `UNLOCK_SKILL` — validates point budget and prerequisites
+  - [x] `getActionMetadata()` returns tree structure, unlocked nodes, available points
+- [x] Skill tree UI in Expo app
+  - [x] New tab "Skill Tree" in bottom drawer
+  - [x] Visual tree with nodes (locked/available/unlocked) and branch lines
+  - [x] Each node shows name, description, cost, and bonus value
+- [x] Export from `packages/core/index.ts` and wire into both apps
 
 ---
 
@@ -598,18 +598,18 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 **The problem:** no reason to return daily. Sessions have no narrative purpose.
 **The fix:** 3 rotating daily missions that refresh every 24 hours and grant meaningful rewards.
 
-- [ ] Create `MissionPlugin`
-  - [ ] Pool of 12+ mission templates: "Deal 1000 tap damage", "Kill 50 enemies", "Cast 10 spells", "Reach stage X", "Spend Y compute on upgrades", "Prestige once", etc.
-  - [ ] Each day: deterministically pick 3 missions using `Math.floor(Date.now() / 86400000)` as seed
-  - [ ] Track per-mission progress in plugin state; check completion on `onTick` and `onAction`
-  - [ ] Rewards: compute shards (new sub-currency), skill points, or large gold lump sums
-  - [ ] `getActionMetadata()` returns missions array with id, description, progress, target, reward, completed
-  - [ ] Action: `CLAIM_MISSION` — marks claimed, grants reward; prevents double-claim
-- [ ] Mission UI
-  - [ ] New tab "Missions" in bottom drawer (or mini-card above monster area)
-  - [ ] 3 mission rows with progress bars and claim buttons
-  - [ ] Countdown timer to next reset
-- [ ] Export from `packages/core/index.ts` and wire into both apps
+- [x] Create `MissionPlugin`
+  - [x] Pool of 12+ mission templates: "Deal 1000 tap damage", "Kill 50 enemies", "Cast 10 spells", "Reach stage X", "Spend Y compute on upgrades", "Prestige once", etc.
+  - [x] Each day: deterministically pick 3 missions using `Math.floor(Date.now() / 86400000)` as seed
+  - [x] Track per-mission progress in plugin state; check completion on `onTick` and `onAction`
+  - [x] Rewards: compute shards (new sub-currency), skill points, or large gold lump sums
+  - [x] `getActionMetadata()` returns missions array with id, description, progress, target, reward, completed
+  - [x] Action: `CLAIM_MISSION` — marks claimed, grants reward; prevents double-claim
+- [x] Mission UI
+  - [x] New tab "Missions" in bottom drawer (or mini-card above monster area)
+  - [x] 3 mission rows with progress bars and claim buttons
+  - [x] Countdown timer to next reset
+- [x] Export from `packages/core/index.ts` and wire into both apps
 
 ---
 
@@ -617,19 +617,19 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 **The problem:** combat is passive and never tense. Players tap without stakes.
 **The fix:** optional high-stakes boss fights that appear every 10 stages with a 30-second timer. Kill it for massive rewards; fail and lose nothing.
 
-- [ ] Create `BossPlugin`
-  - [ ] Every 10 stage kills triggers a boss spawn (tracked in plugin state)
-  - [ ] Boss has 10× normal HP and a 30-second window to kill it (`bossTimer` countdown in `onTick`)
-  - [ ] Boss rewards: `3× gold` + guaranteed rare equipment drop + +1 skill point
-  - [ ] If timer expires, boss retreats silently — no penalty
-  - [ ] State: `{ bossActive, bossHp, bossMaxHp, bossTimer, bossesDefeated }`
-  - [ ] Integrates with `AdaptiveModule`: `TAP_DAMAGE` and spell actions route through `BossPlugin` when boss is active
-  - [ ] `getActionMetadata()` returns boss state for UI
-- [ ] Boss UI in monster area
-  - [ ] Boss indicator replaces normal enemy (different emoji + "BOSS" label + red HP bar)
-  - [ ] Countdown timer displayed prominently
-  - [ ] Screen flash / haptic on boss spawn
-- [ ] Export from `packages/core/index.ts` and wire into both apps
+- [x] Create `BossPlugin`
+  - [x] Every 10 stage kills triggers a boss spawn (tracked in plugin state)
+  - [x] Boss has 10× normal HP and a 30-second window to kill it (`bossTimer` countdown in `onTick`)
+  - [x] Boss rewards: `3× gold` + guaranteed rare equipment drop + +1 skill point
+  - [x] If timer expires, boss retreats silently — no penalty
+  - [x] State: `{ bossActive, bossHp, bossMaxHp, bossTimer, bossesDefeated }`
+  - [x] Integrates with `AdaptiveModule`: `TAP_DAMAGE` and spell actions route through `BossPlugin` when boss is active
+  - [x] `getActionMetadata()` returns boss state for UI
+- [x] Boss UI in monster area
+  - [x] Boss indicator replaces normal enemy (different emoji + "BOSS" label + red HP bar)
+  - [x] Countdown timer displayed prominently
+  - [x] Screen flash / haptic on boss spawn
+- [x] Export from `packages/core/index.ts` and wire into both apps
 
 ---
 
@@ -637,18 +637,18 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 **The problem:** passive income (`generationRates`) is locked to 0; the only income source is killing. This makes offline progress nearly zero and early-game sessions feel empty.
 **The fix:** purchasable "Network Nodes" (think: generators in Cookie Clicker) that produce compute passively. Separate from the `generationRates` system — they live entirely in plugin state.
 
-- [ ] Create `NetworkPlugin`
-  - [ ] 5 node types: Bot Farm (cheap, slow), Scraper Array, Proxy Cluster, AI Server, Quantum Core (expensive, fast)
-  - [ ] Each type has a base rate and a count; total output = Σ(count × rate) per second
-  - [ ] Prices double every purchase (classic idle formula)
-  - [ ] Output applied in `onTick` as compute added to resources
-  - [ ] Action: `BUY_NODE` — validates gold, deducts cost, increments count
-  - [ ] `getActionMetadata()` returns node array with name, count, cost, rate, totalOutput
-- [ ] Network UI
-  - [ ] Replace "System Upgrades" tab content with combined: existing upgrades (tap/level) + node purchase list below
-  - [ ] Each node row: name, owned count, rate/sec, next cost, buy button
-- [ ] Export from `packages/core/index.ts` and wire into both apps
-- [ ] Update `doc.md` passive income section
+- [x] Create `NetworkPlugin`
+  - [x] 5 node types: Bot Farm (cheap, slow), Scraper Array, Proxy Cluster, AI Server, Quantum Core (expensive, fast)
+  - [x] Each type has a base rate and a count; total output = Σ(count × rate) per second
+  - [x] Prices double every purchase (classic idle formula)
+  - [x] Output applied in `onTick` as compute added to resources
+  - [x] Action: `BUY_NODE` — validates gold, deducts cost, increments count
+  - [x] `getActionMetadata()` returns node array with name, count, cost, rate, totalOutput
+- [x] Network UI
+  - [x] Replace "System Upgrades" tab content with combined: existing upgrades (tap/level) + node purchase list below
+  - [x] Each node row: name, owned count, rate/sec, next cost, buy button
+- [x] Export from `packages/core/index.ts` and wire into both apps
+- [x] Update `doc.md` passive income section
 
 ---
 
@@ -656,15 +656,15 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 **The problem:** tapping feels mechanical. There's no skill expression.
 **The fix:** a combo multiplier that builds up with rapid taps and decays when idle. Pure UI/state logic.
 
-- [ ] Track `comboCount` and `comboMultiplier` in `AdaptiveModule` state
-  - [ ] Each `TAP_DAMAGE` within 1.5 seconds increments `comboCount` (cap: 20)
-  - [ ] `comboMultiplier = 1 + comboCount * 0.1` applied to tap damage
-  - [ ] `comboCount` resets to 0 if 1.5s passes without a tap (tracked via `lastTapTime` in plugin state)
-  - [ ] Update `onAction` and `onTick` in `AdaptiveModule`
-- [ ] Combo UI
-  - [ ] Combo counter above monster ("×1.5 COMBO!" when active)
-  - [ ] Color shifts from white → yellow → orange → red at milestone counts
-  - [ ] Burst animation pulse on the monster area at max combo
+- [x] Track `comboCount` and `comboMultiplier` in `AdaptiveModule` state
+  - [x] Each `TAP_DAMAGE` within 1.5 seconds increments `comboCount` (cap: 20)
+  - [x] `comboMultiplier = 1 + comboCount * 0.1` applied to tap damage
+  - [x] `comboCount` resets to 0 if 1.5s passes without a tap (tracked via `lastTapTime` in plugin state)
+  - [x] Update `onAction` and `onTick` in `AdaptiveModule`
+- [x] Combo UI
+  - [x] Combo counter above monster ("×1.5 COMBO!" when active)
+  - [x] Color shifts from white → yellow → orange → red at milestone counts
+  - [x] Burst animation pulse on the monster area at max combo
 
 ---
 
@@ -672,53 +672,53 @@ This breaks plugin abstraction. The engine knows a specific plugin by string ID.
 **The problem:** no social proof or external motivation.
 **The fix:** anonymous opt-in leaderboard — top players by stage, prestige cores, and monsters defeated. Stored in Supabase.
 
-- [ ] Create `leaderboard` Supabase table
-  - [ ] Columns: `user_id`, `stage`, `prestige_cores`, `monsters_defeated`, `updated_at`
-  - [ ] RLS: each user can only write their own row; anyone can read top 50
-- [ ] Deploy Supabase Edge Function `submit-score` that upserts a player's score
-- [ ] Create `LeaderboardPlugin`
-  - [ ] Opt-in (disabled by default); submits score to edge function every 5 minutes when enabled
-  - [ ] Fetches top-10 leaderboard on enable and every 10 minutes
-  - [ ] Stores `{ enabled, myRank, topPlayers: [{rank,stage,cores,defeated}] }` in plugin state
-  - [ ] Action: `TOGGLE_LEADERBOARD`
-- [ ] Leaderboard UI tab in both apps
-  - [ ] Ranked list (top 10 anonymous entries)
-  - [ ] Player's own rank highlighted
-  - [ ] Opt-in toggle with privacy notice
-- [ ] Export and wire into both apps
+- [x] Create `leaderboard` Supabase table
+  - [x] Columns: `user_id`, `stage`, `prestige_cores`, `monsters_defeated`, `updated_at`
+  - [x] RLS: each user can only write their own row; anyone can read top 50
+- [x] Deploy Supabase Edge Function `submit-score` that upserts a player's score
+- [x] Create `LeaderboardPlugin`
+  - [x] Opt-in (disabled by default); submits score to edge function every 5 minutes when enabled
+  - [x] Fetches top-10 leaderboard on enable and every 10 minutes
+  - [x] Stores `{ enabled, myRank, topPlayers: [{rank,stage,cores,defeated}] }` in plugin state
+  - [x] Action: `TOGGLE_LEADERBOARD`
+- [x] Leaderboard UI tab in both apps
+  - [x] Ranked list (top 10 anonymous entries)
+  - [x] Player's own rank highlighted
+  - [x] Opt-in toggle with privacy notice
+- [x] Export and wire into both apps
 
 ---
 
 ## 7. Narrative Events System (`packages/core/EventPlugin.ts`)
 **The innovation:** scripted "world events" that fire at milestone stages — flavor text + temporary buffs. No other idle RPG in this genre does this at the plugin level.
 
-- [ ] Create `EventPlugin`
-  - [ ] Table of 10 events tied to stage milestones (stage 5, 10, 25, 50, 75, 100, 150, 200, 300, 500)
-  - [ ] Each event: title, flavor text (lore), buff type (`DOUBLE_GOLD / DOUBLE_TAP / FREE_SPELLS`), duration (60–300s)
-  - [ ] Active buff is applied multiplicatively in `onTick`
-  - [ ] State: `{ seenEvents: [], activeEvent: null, activeBuffExpiry: 0 }`
-  - [ ] Fires on `onTick` when `state.level` matches a threshold and hasn't been seen
-  - [ ] `getActionMetadata()` returns active event + remaining buff time
-- [ ] Event UI
-  - [ ] Full-screen modal pop-up with event title + flavor text + buff announcement
-  - [ ] Persists in a log accessible via "Intel Log" mini-tab
-- [ ] Export and wire into both apps
+- [x] Create `EventPlugin`
+  - [x] Table of 10 events tied to stage milestones (stage 5, 10, 25, 50, 75, 100, 150, 200, 300, 500)
+  - [x] Each event: title, flavor text (lore), buff type (`DOUBLE_GOLD / DOUBLE_TAP / FREE_SPELLS`), duration (60–300s)
+  - [x] Active buff is applied multiplicatively in `onTick`
+  - [x] State: `{ seenEvents: [], activeEvent: null, activeBuffExpiry: 0 }`
+  - [x] Fires on `onTick` when `state.level` matches a threshold and hasn't been seen
+  - [x] `getActionMetadata()` returns active event + remaining buff time
+- [x] Event UI
+  - [x] Full-screen modal pop-up with event title + flavor text + buff announcement
+  - [x] Persists in a log accessible via "Intel Log" mini-tab
+- [x] Export and wire into both apps
 
 ---
 
 ## 8. Accessibility & Retention Polish
-- [ ] Add "Return bonus" — if offline > 2 hours, show a "welcome back" screen with offline gains summary
-- [ ] Add session play time tracker in `AdaptiveModule` or standalone — show total play time in stats
-- [ ] Add "New!" badge on tabs that have unread content (new gear dropped, mission available, etc.)
-- [ ] Add settings option to disable haptics independently of sound
-- [ ] Add a minimal "Stats" tab showing lifetime stats: total taps, total gold earned, total kills, time played
+- [x] Add "Return bonus" — if offline > 2 hours, show a "welcome back" screen with offline gains summary
+- [x] Add session play time tracker in `AdaptiveModule` or standalone — show total play time in stats
+- [x] Add "New!" badge on tabs that have unread content (new gear dropped, mission available, etc.)
+- [x] Add settings option to disable haptics independently of sound
+- [x] Add a minimal "Stats" tab showing lifetime stats: total taps, total gold earned, total kills, time played
 
 ---
 
 ## Engine / Infra Changes Required
-- [ ] `BaseTypes.ts`: add `comboCount`, `lastTapTime` to `AdaptiveModuleState` (minor state extension)
-- [ ] `BaseTypes.ts`: add `missionProgress` partial tracking hook in dispatch (or handle fully in plugin)
-- [ ] `GameEngine.ts`: no changes needed — plugins are self-contained
+- [x] `BaseTypes.ts`: add `comboCount`, `lastTapTime` to `AdaptiveModuleState` (minor state extension)
+- [x] `BaseTypes.ts`: add `missionProgress` partial tracking hook in dispatch (or handle fully in plugin)
+- [x] `GameEngine.ts`: no changes needed — plugins are self-contained
 
 ---
 
