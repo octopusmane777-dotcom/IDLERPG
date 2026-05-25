@@ -94,9 +94,11 @@ export class PrestigePlugin implements EnginePlugin {
     const newCores = pState.cores + 1;
     const newMultiplier = 1 + newCores * BONUS_PER_CORE;
 
-    const resetPluginState: Record<string, any> = {
-      [this.id]: { ...pState, cores: newCores, bonusMultiplier: newMultiplier },
-    };
+    // Start by preserving ALL existing plugin state, then override only what resets
+    const resetPluginState: Record<string, any> = { ...state.pluginState };
+
+    resetPluginState[this.id] = { ...pState, cores: newCores, bonusMultiplier: newMultiplier };
+
     // Grant a skill point on each prestige; preserve grantedAtStages so the
     // milestone checker doesn't re-award stage-based points after level resets to 1.
     if (state.pluginState.skilltree) {
@@ -112,8 +114,10 @@ export class PrestigePlugin implements EnginePlugin {
       resetPluginState.adaptive = {
         monsterHp: 10,
         monsterMaxHp: 10,
-        monstersDefeated: 0,
+        monstersDefeated: state.pluginState.adaptive.monstersDefeated ?? 0,
         tapDamage,
+        fightInStage: 1,
+        isMiniBoss: false,
         upgrade: { key: 'UPGRADE_TAP', cost: Math.round(10 + tapDamage * 5), nextValue: tapDamage + 1 },
       };
     }

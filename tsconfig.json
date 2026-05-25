@@ -10,5 +10,5 @@
     "composite": true
   },
   "extends": "expo/tsconfig.base",
-  "exclude": ["packages/app", "packages/core/GameEngine.test.ts"]
+  "exclude": ["packages/app", "packages/core/GameEngine.test.ts", "supabase"]
 }
