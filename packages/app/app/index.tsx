@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   StyleSheet, Text, View, Pressable, Animated, ScrollView,
-  Dimensions, Modal, Alert, StatusBar, Platform, PanResponder,
+  Dimensions, Modal, StatusBar, Platform, PanResponder,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from '@idlerpg/ui';
 import { GameEngine } from '@idlerpg/core/GameEngine';
 import { AdaptiveModule } from '@idlerpg/core/AdaptiveModule';
@@ -11,7 +12,6 @@ import { PrestigePlugin } from '@idlerpg/core/PrestigePlugin';
 import { EnergyPlugin } from '@idlerpg/core/EnergyPlugin';
 import { EquipmentPlugin } from '@idlerpg/core/EquipmentPlugin';
 import { AchievementPlugin } from '@idlerpg/core/AchievementPlugin';
-import { DebugPlugin } from '@idlerpg/core/DebugPlugin';
 import { OnboardingPlugin } from '@idlerpg/core/OnboardingPlugin';
 import { AnalyticsPlugin } from '@idlerpg/core/AnalyticsPlugin';
 import { NetworkPlugin } from '@idlerpg/core/NetworkPlugin';
@@ -51,18 +51,12 @@ const FONT_MONO = Platform.select({ ios: 'Courier New', android: 'monospace', de
 // ── storage / engine ─────────────────────────────────────────────────────────
 const storageAdapter = {
   getItem: async (key: string) => {
-    try {
-      const mod = await import('@react-native-async-storage/async-storage').then(m => (m && (m as any).default) || m).catch(() => null);
-      if (mod && mod.getItem) return await mod.getItem(key);
-    } catch {}
+    try { return await AsyncStorage.getItem(key); } catch {}
     try { if (typeof window !== 'undefined' && window.localStorage) return window.localStorage.getItem(key); } catch {}
     return null;
   },
   setItem: async (key: string, value: string) => {
-    try {
-      const mod = await import('@react-native-async-storage/async-storage').then(m => (m && (m as any).default) || m).catch(() => null);
-      if (mod && mod.setItem) { await mod.setItem(key, value); return; }
-    } catch {}
+    try { await AsyncStorage.setItem(key, value); return; } catch {}
     try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.setItem(key, value); } catch {}
   },
 };
@@ -85,10 +79,17 @@ async function initFirebase() {
   try {
     const { initializeApp, getApps } = await import('firebase/app');
     const { getFirestore } = await import('firebase/firestore');
-    const { getAuth } = await import('firebase/auth');
+    const { initializeAuth, getReactNativePersistence, getAuth } = await import('firebase/auth');
     _firebaseApp = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApps()[0];
     _firestore = getFirestore(_firebaseApp);
-    _firebaseAuth = getAuth(_firebaseApp);
+    try {
+      _firebaseAuth = initializeAuth(_firebaseApp, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+    } catch {
+      // Already initialized — retrieve existing instance
+      _firebaseAuth = getAuth(_firebaseApp);
+    }
   } catch (e) {
     console.warn('[Firebase] Init failed:', e);
   }
@@ -102,7 +103,7 @@ const engine = new GameEngine({
   plugins: [
     new ProgressionPlugin(), new AdaptiveModule(), new PrestigePlugin(),
     new EnergyPlugin(), new EquipmentPlugin(), new AchievementPlugin(),
-    new DebugPlugin(), new OnboardingPlugin(), new AnalyticsPlugin(),
+    new OnboardingPlugin(), new AnalyticsPlugin(),
     new NetworkPlugin(), new ComboPlugin(), new MissionPlugin(),
     new BossPlugin(), new SkillTreePlugin(),
   ],
@@ -1110,25 +1111,6 @@ export default function App() {
       </Modal>
 
       <ToastComponent />
-
-      {/* ── dev panel ── */}
-      <Pressable style={sx.devToggle} onPress={() => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'TOGGLE_DEBUG' } } })}>
-        <Text style={sx.devToggleText}>DEV</Text>
-      </Pressable>
-      {meta.plugins['debug']?.debug?.visible && (
-        <View style={sx.devPanel}>
-          {[
-            { label: '+1K', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 1000 } } }) },
-            { label: '+100K', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'ADD_GOLD', amount: 100000 } } }) },
-            { label: 'ST.50', action: () => engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'debug', action: { type: 'SET_LEVEL', level: 50 } } }) },
-            { label: 'RESET', action: async () => { try { localStorage.removeItem('idlerpg_user_player'); } catch {} location.reload(); } },
-          ].map(b => (
-            <Pressable key={b.label} style={[sx.devBtn, b.label === 'RESET' && { borderColor: C.red }]} onPress={b.action}>
-              <Text style={[sx.devBtnText, b.label === 'RESET' && { color: C.red }]}>{b.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
     </View>
   );
 }
@@ -1436,13 +1418,6 @@ const sx = StyleSheet.create({
   listDot: { fontSize: 12, marginTop: 1, width: 16 },
   listName: { fontFamily: FONT_MONO, color: C.white, fontSize: 11, fontWeight: '700' },
   listSub: { color: C.dim, fontSize: 9, marginTop: 2 },
-
-  // Dev
-  devToggle: { position: 'absolute', bottom: 8, right: 12, padding: 6, opacity: 0.3 },
-  devToggleText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 8 },
-  devPanel: { position: 'absolute', bottom: 30, right: 8, flexDirection: 'row', gap: 4, backgroundColor: C.surface, padding: 6, borderRadius: 6, borderWidth: 1, borderColor: C.border },
-  devBtn: { borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 },
-  devBtnText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 9 },
 
   // Shared
   btnOff: { opacity: 0.3, borderColor: C.dim },
