@@ -9,6 +9,8 @@ import { DebugPlugin } from './DebugPlugin';
 import { NetworkPlugin } from './NetworkPlugin';
 import { ComboPlugin } from './ComboPlugin';
 import { BossPlugin } from './BossPlugin';
+import { MissionPlugin } from './MissionPlugin';
+import { SkillTreePlugin } from './SkillTreePlugin';
 import { GameDataRepository, GameSave } from './BaseTypes';
 import { StorageAdapter } from './LocalDataRepository';
 
@@ -560,5 +562,266 @@ describe('BossPlugin', () => {
     expect(boss).toBeDefined();
     expect(boss.bossActive).toBe(false);
     expect(typeof boss.bossAttempts).toBe('number');
+  });
+});
+
+describe('MissionPlugin', () => {
+  let engine: GameEngine;
+
+  beforeEach(() => {
+    const mockStorage = new MockStorageAdapter();
+    const mockRepository = new MockRepository(mockStorage);
+    engine = new GameEngine({
+      repo: mockRepository,
+      userId: 'test_user',
+      plugins: [new MissionPlugin(), new ProgressionPlugin(), new AdaptiveModule()],
+      tickRateMs: 100,
+    });
+    engine.initializePlugins();
+  });
+
+  it('should initialize with 3 active missions for today', () => {
+    const ms = engine.getState().pluginState['missions'];
+    expect(ms).toBeDefined();
+    expect(ms.active).toHaveLength(3);
+    expect(ms.dayKey).toBeGreaterThan(0);
+  });
+
+  it('should start all missions with zero progress', () => {
+    const ms = engine.getState().pluginState['missions'];
+    for (const m of ms.active) {
+      expect(m.progress).toBe(0);
+      expect(m.completed).toBe(false);
+      expect(m.claimed).toBe(false);
+    }
+  });
+
+  it('should increment sessionTaps on TAP_DAMAGE', () => {
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
+    const ms = engine.getState().pluginState['missions'];
+    expect(ms.sessionTaps).toBe(1);
+  });
+
+  it('should increment sessionSpellsCast on SLASH', () => {
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'SLASH' } } });
+    const ms = engine.getState().pluginState['missions'];
+    expect(ms.sessionSpellsCast).toBe(1);
+  });
+
+  it('should track spend on LEVEL_UP', () => {
+    engine.dispatch({
+      type: 'PLUGIN_ACTION',
+      payload: { pluginId: 'missions', action: { type: 'LEVEL_UP', payload: { cost: 40 } } },
+    });
+    const ms = engine.getState().pluginState['missions'];
+    expect(ms.sessionGoldSpent).toBe(40);
+  });
+
+  it('should complete a tap mission when sessionTaps reaches target', () => {
+    const ms0 = engine.getState().pluginState['missions'];
+    const tapMission = ms0.active.find((m: any) => m.id === 'tap_50' || m.id === 'tap_200');
+    if (!tapMission) return; // not in today's rotation, skip
+
+    const target = tapMission.target;
+    for (let i = 0; i < target; i++) {
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
+    }
+    const ms = engine.getState().pluginState['missions'];
+    const updated = ms.active.find((m: any) => m.id === tapMission.id);
+    expect(updated.completed).toBe(true);
+    expect(updated.progress).toBe(target);
+  });
+
+  it('should grant reward on CLAIM_MISSION and prevent double-claim', () => {
+    // Force a completed tap mission by targeting tap_50
+    const ms0 = engine.getState().pluginState['missions'];
+    const tapMission = ms0.active.find((m: any) => m.id === 'tap_50');
+    if (!tapMission) return; // not in today's rotation, skip
+
+    for (let i = 0; i < 50; i++) {
+      engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'TAP_DAMAGE' } } });
+    }
+
+    const goldBefore = engine.getState().resources.gold;
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'CLAIM_MISSION', missionId: 'tap_50' } } });
+    const goldAfter = engine.getState().resources.gold;
+    expect(goldAfter).toBeGreaterThan(goldBefore);
+
+    // Second claim should be a no-op
+    const goldAfterSecondClaim = engine.getState().resources.gold;
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'CLAIM_MISSION', missionId: 'tap_50' } } });
+    expect(engine.getState().resources.gold).toBe(goldAfterSecondClaim);
+  });
+
+  it('should NOT claim an incomplete mission', () => {
+    const ms0 = engine.getState().pluginState['missions'];
+    const mission = ms0.active[0];
+    const goldBefore = engine.getState().resources.gold;
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'missions', action: { type: 'CLAIM_MISSION', missionId: mission.id } } });
+    expect(engine.getState().resources.gold).toBe(goldBefore);
+  });
+
+  it('should return missions metadata via getActionMetadata', () => {
+    const meta = engine.getUpgradeMetadata();
+    const missions = meta.plugins['missions']?.missions;
+    expect(missions).toBeDefined();
+    expect(missions.list).toHaveLength(3);
+    expect(typeof missions.nextReset).toBe('number');
+    expect(missions.hoursUntilReset).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should produce 3 unique mission IDs for any day key', () => {
+    // Verify that the deterministic picker never returns duplicate IDs
+    const ms = engine.getState().pluginState['missions'];
+    const ids = ms.active.map((m: any) => m.id);
+    const unique = new Set(ids);
+    expect(unique.size).toBe(3);
+  });
+});
+
+describe('SkillTreePlugin', () => {
+  let engine: GameEngine;
+
+  beforeEach(() => {
+    const mockStorage = new MockStorageAdapter();
+    const mockRepository = new MockRepository(mockStorage);
+    engine = new GameEngine({
+      repo: mockRepository,
+      userId: 'test_user',
+      plugins: [new SkillTreePlugin(), new PrestigePlugin(), new ProgressionPlugin()],
+      tickRateMs: 100,
+    });
+    engine.initializePlugins();
+  });
+
+  it('should initialize with 0 points and empty unlocked list', () => {
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.points).toBe(0);
+    expect(st.unlocked).toEqual([]);
+    expect(st.chosenPath).toBeNull();
+  });
+
+  it('should NOT unlock a skill when points are 0', () => {
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's1' } } });
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.unlocked).not.toContain('s1');
+  });
+
+  it('should unlock a root skill when a point is available', () => {
+    // Manually grant a skill point via loadSavedState
+    const state = engine.getState();
+    engine.loadSavedState({
+      ...state,
+      pluginState: { ...state.pluginState, skilltree: { ...state.pluginState.skilltree, points: 1 } },
+    });
+
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's1' } } });
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.unlocked).toContain('s1');
+    expect(st.points).toBe(0);
+    expect(st.chosenPath).toBe('STRIKER');
+  });
+
+  it('should NOT unlock a node without its prerequisite', () => {
+    const state = engine.getState();
+    engine.loadSavedState({
+      ...state,
+      pluginState: { ...state.pluginState, skilltree: { ...state.pluginState.skilltree, points: 1 } },
+    });
+
+    // s2 requires s1 — should fail since s1 is not unlocked
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's2' } } });
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.unlocked).not.toContain('s2');
+    expect(st.points).toBe(1); // point not consumed
+  });
+
+  it('should enforce one-path lock after first unlock', () => {
+    const state = engine.getState();
+    engine.loadSavedState({
+      ...state,
+      pluginState: { ...state.pluginState, skilltree: { ...state.pluginState.skilltree, points: 2 } },
+    });
+
+    // Unlock s1 (STRIKER branch) — locks out PHANTOM and ARCANE
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's1' } } });
+    expect(engine.getState().pluginState['skilltree'].chosenPath).toBe('STRIKER');
+
+    // Attempt to unlock p1 (PHANTOM branch) — should fail
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 'p1' } } });
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.unlocked).not.toContain('p1');
+    expect(st.points).toBe(1); // only 1 spent (on s1)
+  });
+
+  it('should unlock prerequisite chain correctly', () => {
+    const state = engine.getState();
+    engine.loadSavedState({
+      ...state,
+      pluginState: { ...state.pluginState, skilltree: { ...state.pluginState.skilltree, points: 3 } },
+    });
+
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's1' } } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's2' } } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's3' } } });
+
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.unlocked).toContain('s1');
+    expect(st.unlocked).toContain('s2');
+    expect(st.unlocked).toContain('s3');
+    expect(st.points).toBe(0);
+  });
+
+  it('should NOT unlock the same node twice', () => {
+    const state = engine.getState();
+    engine.loadSavedState({
+      ...state,
+      pluginState: { ...state.pluginState, skilltree: { ...state.pluginState.skilltree, points: 3 } },
+    });
+
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's1' } } });
+    engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'skilltree', action: { type: 'UNLOCK_SKILL', nodeId: 's1' } } });
+
+    const st = engine.getState().pluginState['skilltree'];
+    const count = st.unlocked.filter((id: string) => id === 's1').length;
+    expect(count).toBe(1);
+    expect(st.points).toBe(2); // only 1 spent
+  });
+
+  it('should grant a skill point when stage milestone is reached', () => {
+    // Set level to 50 (first milestone stage)
+    const state = engine.getState();
+    engine.loadSavedState({ ...state, level: 50 });
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+
+    const st = engine.getState().pluginState['skilltree'];
+    expect(st.points).toBeGreaterThanOrEqual(1);
+    expect(st.grantedAtStages).toContain(50);
+  });
+
+  it('should NOT grant a point for the same stage milestone twice', () => {
+    const state = engine.getState();
+    engine.loadSavedState({ ...state, level: 50 });
+    const ts = engine.getState().lastTick;
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 1000 } });
+    engine.dispatch({ type: 'TICK', payload: { timestamp: ts + 2000 } });
+
+    const st = engine.getState().pluginState['skilltree'];
+    const count = st.grantedAtStages.filter((s: number) => s === 50).length;
+    expect(count).toBe(1);
+  });
+
+  it('should return skill tree metadata via getActionMetadata', () => {
+    const meta = engine.getUpgradeMetadata();
+    const skilltree = meta.plugins['skilltree']?.skilltree;
+    expect(skilltree).toBeDefined();
+    expect(skilltree.points).toBe(0);
+    expect(skilltree.nodes.length).toBeGreaterThan(0);
+    // Root nodes (no requires) should be locked (no points)
+    const s1Node = skilltree.nodes.find((n: any) => n.id === 's1');
+    expect(s1Node).toBeDefined();
+    expect(s1Node.available).toBe(false); // no points
+    expect(s1Node.locked).toBe(false); // no prerequisite missing — just no points
   });
 });

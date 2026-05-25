@@ -4,6 +4,10 @@
   "workspaces": [
     "packages/*"
   ],
+  "scripts": {
+    "test": "cd packages/core && npm test",
+    "build:web": "cd packages/web && npm run build"
+  },
   "devDependencies": {
     "@types/node": "^25.9.1",
     "typescript": "^5.0.0"

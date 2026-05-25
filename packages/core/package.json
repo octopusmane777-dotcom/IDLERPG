@@ -1,5 +1,12 @@
 {
   "name": "@idlerpg/core",
   "version": "0.1.0",
-  "main": "index.ts"
+  "main": "index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
 }
