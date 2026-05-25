@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   StyleSheet, Text, View, Pressable, Animated, ScrollView,
-  Dimensions, Modal, Alert, StatusBar, Platform,
+  Dimensions, Modal, Alert, StatusBar, Platform, PanResponder,
 } from 'react-native';
 import { useToast } from '@idlerpg/ui';
 import { GameEngine } from '@idlerpg/core/GameEngine';
@@ -185,8 +185,44 @@ export default function App() {
   const tapScale = useRef(new Animated.Value(1)).current;
   const attackGlow = useRef(new Animated.Value(0)).current;
   const prevState = useRef(state);
-  // Prestige pulse animation
   const prestigePulse = useRef(new Animated.Value(1)).current;
+
+  // Swipe-up drawer
+  const DRAWER_COLLAPSED = 56;
+  const DRAWER_EXPANDED = SCREEN_W < 400 ? 320 : 360;
+  const drawerAnim = useRef(new Animated.Value(DRAWER_COLLAPSED)).current;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerOpenRef = useRef(false);
+
+  const openDrawer = () => {
+    drawerOpenRef.current = true;
+    setDrawerOpen(true);
+    Animated.spring(drawerAnim, { toValue: DRAWER_EXPANDED, useNativeDriver: false, tension: 60, friction: 12 }).start();
+  };
+  const closeDrawer = () => {
+    drawerOpenRef.current = false;
+    setDrawerOpen(false);
+    Animated.spring(drawerAnim, { toValue: DRAWER_COLLAPSED, useNativeDriver: false, tension: 60, friction: 12 }).start();
+  };
+  const toggleDrawer = () => drawerOpenRef.current ? closeDrawer() : openDrawer();
+
+  const panResponder = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 8,
+    onPanResponderMove: (_, g) => {
+      if (drawerOpenRef.current && g.dy > 0) {
+        drawerAnim.setValue(Math.max(DRAWER_COLLAPSED, DRAWER_EXPANDED - g.dy));
+      } else if (!drawerOpenRef.current && g.dy < 0) {
+        drawerAnim.setValue(Math.min(DRAWER_EXPANDED, DRAWER_COLLAPSED - g.dy));
+      }
+    },
+    onPanResponderRelease: (_, g) => {
+      if (drawerOpenRef.current) {
+        g.dy > 60 ? closeDrawer() : openDrawer();
+      } else {
+        g.dy < -40 ? openDrawer() : closeDrawer();
+      }
+    },
+  })).current;
 
   const spawnDmg = (text: string, color: string) => {
     const anim = new Animated.Value(1);
@@ -523,43 +559,41 @@ export default function App() {
         </Pressable>
       </Animated.View>
 
-      {/* ── spell bar ── */}
+      {/* ── spell bar (circular) ── */}
       <View style={sx.spellBar}>
-        {(energy?.spells ?? []).map((s: any) => (
-          <Pressable key={s.id}
-            style={[sx.spellBtn, !s.canCast && sx.spellBtnOff, s.cooldownRemaining > 0 && sx.spellBtnCD]}
-            onPress={() => {
-              if (!s.canCast) return;
-              triggerHaptic('spell');
-              spawnDmg(`${s.name}!`, s.color ?? C.cyan);
-              engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.id } } });
-              showMessage(`${s.name} activated!`);
-            }}
-            disabled={!s.canCast}
-            accessibilityRole="button"
-            accessibilityLabel={s.name}
-            accessibilityState={{ disabled: !s.canCast }}
-          >
-            <Text style={[sx.spellName, { color: s.canCast ? (s.color ?? C.cyan) : C.dim }]}>{s.name}</Text>
-            {s.cooldownRemaining > 0
-              ? <Text style={sx.spellSub}>{s.cooldownRemaining.toFixed(0)}s</Text>
-              : <Text style={[sx.spellSub, { color: s.canCast ? '#7be' : C.dim }]}>{s.cost}⚡</Text>
-            }
-          </Pressable>
-        ))}
+        {(energy?.spells ?? []).map((s: any) => {
+          const onCD = s.cooldownRemaining > 0;
+          const abbr = s.name.slice(0, 3).toUpperCase();
+          return (
+            <Pressable key={s.id}
+              style={[sx.spellCircle,
+                { borderColor: s.canCast ? (s.color ?? C.cyan) : C.dimmer },
+                !s.canCast && sx.spellCircleOff,
+                onCD && sx.spellCircleCD,
+              ]}
+              onPress={() => {
+                if (!s.canCast) return;
+                triggerHaptic('spell');
+                spawnDmg(`${s.name}!`, s.color ?? C.cyan);
+                engine.dispatch({ type: 'PLUGIN_ACTION', payload: { pluginId: 'energy', action: { type: s.id } } });
+                showMessage(`${s.name} activated!`);
+              }}
+              disabled={!s.canCast}
+              accessibilityRole="button"
+              accessibilityLabel={s.name}
+              accessibilityState={{ disabled: !s.canCast }}
+            >
+              <Text style={[sx.spellCircleAbbr, { color: s.canCast ? (s.color ?? C.cyan) : C.dimmer }]}>{abbr}</Text>
+              <Text style={[sx.spellCircleSub, { color: s.canCast && !onCD ? (s.color ?? C.cyan) : C.dim }]}>
+                {onCD ? `${s.cooldownRemaining.toFixed(0)}s` : `${s.cost}⚡`}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      {/* ── tab drawer ── */}
-      <View style={sx.drawer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={sx.tabScroll} contentContainerStyle={sx.tabRow}>
-          {TABS.map(t => (
-            <Pressable key={t.id} style={[sx.tabBtn, tab === t.id && sx.tabBtnActive]} onPress={() => setTab(t.id)}>
-              <Text style={[sx.tabText, tab === t.id && sx.tabTextActive]}>{t.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+      {/* ── main content scroll (always visible) ── */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 80 }}>
 
           {/* COMBAT TAB */}
           {tab === 'combat' && (
@@ -801,7 +835,10 @@ export default function App() {
           {/* MISSIONS TAB */}
           {tab === 'missions' && (
             <View style={sx.tabContent}>
-              <SectionHeader title="DAILY OPS" sub={`Resets in ${missions?.hoursUntilReset ?? 0}h`} />
+              <SectionHeader title="DAILY OPS" sub={missions ? `Resets in ${missions.hoursUntilReset}h` : 'Loading...'} />
+              {(!missions || missions.list.length === 0) && (
+                <Text style={sx.emptyMsg}>Missions loading — start attacking to activate tracking.</Text>
+              )}
               {(missions?.list ?? []).map((m: any) => (
                 <View key={m.id} style={[sx.missionCard, m.claimed && { opacity: 0.35 }]}>
                   <View style={[sx.missionAccent, {
@@ -1000,8 +1037,36 @@ export default function App() {
             </View>
           )}
 
-        </ScrollView>
-      </View>
+      </ScrollView>
+
+      {/* ── swipe-up tab drawer ── */}
+      <Animated.View style={[sx.swipeDrawer, { height: drawerAnim }]} {...panResponder.panHandlers}>
+        {/* Handle + current tab label */}
+        <Pressable style={sx.drawerHandle} onPress={toggleDrawer} accessibilityRole="button" accessibilityLabel="Toggle navigation drawer">
+          <View style={sx.drawerPill} />
+          <Text style={sx.drawerCurrentTab}>{TABS.find(t => t.id === tab)?.label ?? ''}</Text>
+          <Text style={[sx.drawerChevron, drawerOpen && { transform: [{ rotate: '180deg' }] }]}>▲</Text>
+        </Pressable>
+
+        {/* Tab list — visible when open */}
+        {drawerOpen && (
+          <ScrollView style={sx.drawerList} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+            {TABS.map(t => (
+              <Pressable
+                key={t.id}
+                style={[sx.drawerTabRow, tab === t.id && sx.drawerTabRowActive]}
+                onPress={() => { setTab(t.id); closeDrawer(); }}
+                accessibilityRole="button"
+                accessibilityLabel={t.label}
+                accessibilityState={{ selected: tab === t.id }}
+              >
+                <View style={[sx.drawerTabAccent, tab === t.id && { backgroundColor: C.cyan }]} />
+                <Text style={[sx.drawerTabText, tab === t.id && sx.drawerTabTextActive]}>{t.label}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+      </Animated.View>
 
       {/* ── settings modal ── */}
       <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>
@@ -1034,15 +1099,9 @@ export default function App() {
               </Pressable>
             )}
 
-            {[
-              { label: 'MANUAL SAVE', color: C.cyan, action: async () => { await engine.flushSave(); showMessage('Game saved!'); setSettingsOpen(false); } },
-              { label: 'EXPORT SAVE', color: C.green, action: async () => { const json = JSON.stringify({ state: engine.getState(), exportedAt: Date.now() }); try { if ((navigator as any)?.clipboard?.writeText) { await (navigator as any).clipboard.writeText(json); showMessage('Copied to clipboard'); } } catch { Alert.alert('Export', json.slice(0, 500) + '...'); } setSettingsOpen(false); } },
-              { label: 'IMPORT SAVE', color: C.orange, action: async () => { try { const t = await (navigator as any)?.clipboard?.readText(); if (t) { engine.loadSavedState(JSON.parse(t).state ?? JSON.parse(t)); setState(engine.getState()); showMessage('Save imported'); } } catch { showMessage('Import failed'); } setSettingsOpen(false); } },
-            ].map(item => (
-              <Pressable key={item.label} style={[sx.modalBtn, { borderColor: item.color }]} onPress={item.action}>
-                <Text style={[sx.modalBtnText, { color: item.color }]}>{item.label}</Text>
-              </Pressable>
-            ))}
+            <Pressable style={[sx.modalBtn, { borderColor: C.cyan }]} onPress={async () => { await engine.flushSave(); showMessage('Game saved!'); setSettingsOpen(false); }}>
+              <Text style={[sx.modalBtnText, { color: C.cyan }]}>MANUAL SAVE</Text>
+            </Pressable>
             <Pressable style={sx.modalClose} onPress={() => setSettingsOpen(false)}>
               <Text style={sx.modalCloseText}>CLOSE</Text>
             </Pressable>
@@ -1199,22 +1258,40 @@ const sx = StyleSheet.create({
   chipLabel: { fontFamily: FONT_MONO, fontSize: 8, letterSpacing: 1, marginBottom: 2 },
   chipValue: { fontFamily: FONT_MONO, fontSize: 14, fontWeight: '900' },
 
-  // Spell bar
-  spellBar: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingHorizontal: 12, marginTop: 10, marginBottom: 6 },
-  spellBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: C.cyanDark, backgroundColor: C.surface2, alignItems: 'center', minWidth: 64 },
-  spellBtnOff: { opacity: 0.35 },
-  spellBtnCD: { borderStyle: 'dashed', opacity: 0.6 },
-  spellName: { fontFamily: FONT_MONO, fontSize: 9, fontWeight: '700', letterSpacing: 1 },
-  spellSub: { fontFamily: FONT_MONO, fontSize: 9, marginTop: 2, color: C.dim },
+  // Spell bar (circular)
+  spellBar: { flexDirection: 'row', justifyContent: 'center', gap: 10, paddingHorizontal: 12, marginTop: 10, marginBottom: 6, flexWrap: 'wrap' },
+  spellCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    borderWidth: 2, borderColor: C.cyanDark,
+    backgroundColor: C.surface2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  spellCircleOff: { opacity: 0.35 },
+  spellCircleCD: { borderStyle: 'dashed', opacity: 0.65 },
+  spellCircleAbbr: { fontFamily: FONT_MONO, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  spellCircleSub: { fontFamily: FONT_MONO, fontSize: 9, marginTop: 2, color: C.dim },
 
-  // Drawer
-  drawer: { flex: 1, backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border, overflow: 'hidden' },
-  tabScroll: { maxHeight: 44, borderBottomWidth: 1, borderColor: C.border },
-  tabRow: { flexDirection: 'row', paddingHorizontal: 4, alignItems: 'center', height: 44 },
-  tabBtn: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 2, borderColor: 'transparent' },
-  tabBtnActive: { borderColor: C.cyan },
-  tabText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
-  tabTextActive: { color: C.cyan },
+  // Swipe-up drawer
+  swipeDrawer: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.border,
+    overflow: 'hidden',
+    elevation: 20,
+    shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: -4 },
+  },
+  drawerHandle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 56, paddingHorizontal: 20, gap: 10 },
+  drawerPill: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.dimmer },
+  drawerCurrentTab: { fontFamily: FONT_MONO, color: C.cyan, fontSize: 11, fontWeight: '700', letterSpacing: 3, flex: 1, textAlign: 'center' },
+  drawerChevron: { fontFamily: FONT_MONO, color: C.dim, fontSize: 10 },
+  drawerList: { flex: 1 },
+  drawerTabRow: { flexDirection: 'row', alignItems: 'center', height: 52, paddingHorizontal: 20, gap: 14, borderTopWidth: 1, borderColor: C.border + '55' },
+  drawerTabRowActive: { backgroundColor: C.surface2 },
+  drawerTabAccent: { width: 3, height: 20, borderRadius: 2, backgroundColor: C.dimmer },
+  drawerTabText: { fontFamily: FONT_MONO, color: C.dim, fontSize: 13, fontWeight: '700', letterSpacing: 2 },
+  drawerTabTextActive: { color: C.cyan },
+
   tabContent: { padding: 12, gap: 4 },
 
   // Section header
