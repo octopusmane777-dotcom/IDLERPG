@@ -85,10 +85,7 @@ const repo = new CompositeRepository([localRepo, new MyAdapter()]);
 ## Testing
 
 ```bash
-npx ts-node test.ts            # Core engine dispatch tests
-npx ts-node test-tick.ts       # Tick-based generation
-npx ts-node test-plugins.ts    # Plugin interaction
-npx ts-node test-autosave.ts   # Debounced autosave
+npx vitest run    # Run the unit test suite
 ```
 
 ## Code Style
